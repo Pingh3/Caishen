@@ -67,6 +67,9 @@ export default function JournalPage() {
   const [detecting, setDetecting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importCsv, setImportCsv] = useState("");
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
 
   const [form, setForm] = useState(emptyForm);
 
@@ -295,6 +298,55 @@ export default function JournalPage() {
     }
   }
 
+  async function onImportCsv() {
+    if (!importCsv.trim()) {
+      setMsg("Paste or upload a CSV file first.", "err");
+      return;
+    }
+    if (
+      importMode === "replace" &&
+      !window.confirm(
+        "Replace all existing journal trades with the CSV? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/journal/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv: importCsv, mode: importMode }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setMsg(json.error ?? "Import failed", "err");
+        return;
+      }
+      const refreshed = await loadFinanceData();
+      setData(refreshed);
+      await refreshQuotes(refreshed.trades ?? []);
+      setImportCsv("");
+      setImportOpen(false);
+      setMsg(
+        `Imported ${json.added} trade(s)${
+          json.duplicates ? ` (${json.duplicates} duplicates skipped)` : ""
+        }.`,
+      );
+    } catch {
+      setMsg("Import failed.", "err");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function onImportFile(file: File | null) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setImportCsv(String(reader.result ?? ""));
+    reader.readAsText(file);
+  }
+
   async function refreshDividends() {
     if (!data || trades.length === 0) return;
     setSaving(true);
@@ -361,8 +413,81 @@ export default function JournalPage() {
           >
             Sync open stocks → Investments
           </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => setImportOpen((o) => !o)}
+            className="rounded-lg border border-surface-border px-3 py-2 text-sm text-secondary hover:text-primary disabled:opacity-50"
+          >
+            Import CSV
+          </button>
         </div>
       </div>
+
+      {importOpen ? (
+        <section className="space-y-3 rounded-xl border border-surface-border bg-surface-raised p-4">
+          <h3 className="text-sm font-medium text-primary">
+            Import from Google Sheets
+          </h3>
+          <ol className="list-decimal space-y-1 pl-5 text-xs text-secondary">
+            <li>
+              Open your{" "}
+              <a
+                href="https://docs.google.com/spreadsheets/d/1VqcQay8x8Tk_-f4smRS7XIqFHNi-bjpWPsqMNQuDU6s/edit"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent hover:underline"
+              >
+                trading journal sheet
+              </a>
+            </li>
+            <li>
+              For each tab (<strong>Trades</strong>, <strong>Others</strong>):
+              File → Download → Comma-separated values (.csv)
+            </li>
+            <li>Upload each CSV below (import twice if you use both tabs)</li>
+          </ol>
+          <div className="flex flex-wrap gap-3 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                checked={importMode === "merge"}
+                onChange={() => setImportMode("merge")}
+              />
+              <span className="text-secondary">Add new (skip duplicates)</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                checked={importMode === "replace"}
+                onChange={() => setImportMode("replace")}
+              />
+              <span className="text-secondary">Replace all trades</span>
+            </label>
+          </div>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            className="block w-full text-xs text-secondary"
+            onChange={(e) => onImportFile(e.target.files?.[0] ?? null)}
+          />
+          <textarea
+            className="w-full font-mono text-xs"
+            rows={4}
+            placeholder="Or paste CSV contents here…"
+            value={importCsv}
+            onChange={(e) => setImportCsv(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={saving || !importCsv.trim()}
+            onClick={onImportCsv}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {saving ? "Importing…" : "Import trades"}
+          </button>
+        </section>
+      ) : null}
 
       {message ? (
         <p
