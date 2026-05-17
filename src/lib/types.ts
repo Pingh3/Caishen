@@ -6,6 +6,28 @@ export type AccountCategory =
   | "other_asset"
   | "liability";
 
+export type InsurancePolicyType =
+  | "whole_life"
+  | "ilp"
+  | "endowment"
+  | "term"
+  | "hospitalisation"
+  | "other";
+
+export type InsurancePolicy = {
+  id: string;
+  insurer: string;
+  planName: string;
+  policyType: InsurancePolicyType;
+  /** Current surrender or cash value (SGD) */
+  surrenderValue: number;
+  sumAssured?: number;
+  annualPremium?: number;
+  maturityDate?: string;
+  notes?: string;
+  archived?: boolean;
+};
+
 export type Account = {
   id: string;
   name: string;
@@ -88,6 +110,7 @@ export type FinanceData = {
   snapshots: Snapshot[];
   holdings?: Holding[];
   trades?: Trade[];
+  insurancePolicies?: InsurancePolicy[];
   property?: PropertyProfile;
   allocationTargets?: Partial<Record<AccountCategory, number>>;
   settings?: {

@@ -15,6 +15,7 @@ export function normalizeFinanceData(raw: FinanceData): FinanceData {
     snapshots: raw.snapshots ?? [],
     holdings: raw.holdings ?? [],
     trades: (raw.trades ?? []).map(normalizeTrade),
+    insurancePolicies: raw.insurancePolicies ?? [],
     settings: raw.settings ?? {
       emergencyFundMonths: 6,
       timezone: "Asia/Singapore",

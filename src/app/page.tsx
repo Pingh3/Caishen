@@ -14,7 +14,10 @@ import {
   latestSnapshot,
   monthOverMonthChange,
   previousSnapshot,
+  insuranceTotal,
+  snapshotLiquidNetWorth,
   snapshotNetWorth,
+  retirementTotal,
   sortSnapshots,
 } from "@/lib/finance";
 import { fetchUsdToSgd } from "@/lib/market";
@@ -46,10 +49,18 @@ export default async function DashboardPage() {
     );
   }
 
-  const netWorth = snapshotNetWorth(latest, accounts);
+  const policies = data.insurancePolicies;
+  const netWorth = snapshotNetWorth(latest, accounts, policies);
+  const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies);
+  const cpfSrs = retirementTotal(latest, accounts);
+  const insTotal = insuranceTotal(policies);
   const prev = previousSnapshot(data, latest);
-  const prevNw = prev ? snapshotNetWorth(prev, accounts) : null;
+  const prevNw = prev ? snapshotNetWorth(prev, accounts, policies) : null;
+  const prevLiquid = prev
+    ? snapshotLiquidNetWorth(prev, accounts, policies)
+    : null;
   const { delta, percent } = monthOverMonthChange(netWorth, prevNw);
+  const liquidDelta = monthOverMonthChange(liquidNw, prevLiquid);
   const totals = categoryTotals(latest, accounts);
   const allocation = buildAllocationSlices(
     allocationPercents(totals).map((x) => ({
@@ -64,7 +75,8 @@ export default async function DashboardPage() {
       month: "short",
       year: "2-digit",
     }),
-    netWorth: snapshotNetWorth(s, accounts),
+    netWorth: snapshotNetWorth(s, accounts, policies),
+    liquidNetWorth: snapshotLiquidNetWorth(s, accounts, policies),
   }));
 
   const momTone =
@@ -82,7 +94,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
           label="Net worth"
           value={formatCurrency(netWorth)}
@@ -93,6 +105,12 @@ export default async function DashboardPage() {
           })}
         />
         <StatCard
+          label="Liquid net worth"
+          value={formatCurrency(liquidNw)}
+          sub={`Excludes CPF & SRS (${formatCurrency(cpfSrs)})`}
+          tone="default"
+        />
+        <StatCard
           label="Month over month"
           value={
             percent !== null
@@ -100,21 +118,33 @@ export default async function DashboardPage() {
               : formatCurrency(delta, true)
           }
           sub={
-            percent !== null
-              ? `${delta >= 0 ? "+" : ""}${formatCurrency(delta)}`
-              : "First comparison"
+            liquidDelta.percent !== null
+              ? `Liquid ${formatPercent(liquidDelta.percent, true)}`
+              : percent !== null
+                ? `${delta >= 0 ? "+" : ""}${formatCurrency(delta)}`
+                : "First comparison"
           }
           tone={momTone}
         />
         <StatCard
-          label="Investable assets"
+          label="Insurance (surrender)"
+          value={formatCurrency(insTotal)}
+          sub={
+            <Link href="/insurance" className="text-accent hover:underline">
+              Manage policies →
+            </Link>
+          }
+        />
+        <StatCard
+          label="Investable (incl. CPF)"
           value={formatCurrency(
             totals.cash +
               totals.investments +
               totals.retirement +
-              totals.other_asset,
+              totals.other_asset +
+              insTotal,
           )}
-          sub="Cash + investments + retirement + other"
+          sub="Cash + investments + CPF/SRS + other"
         />
         <StatCard
           label="Liabilities"
@@ -280,6 +310,16 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody>
+              {insTotal > 0 ? (
+                <tr className="border-b border-surface-border/50">
+                  <td className="py-2.5 text-primary">
+                    Insurance (surrender)
+                  </td>
+                  <td className="py-2.5 text-right font-mono tabular-nums text-primary">
+                    {formatCurrency(insTotal)}
+                  </td>
+                </tr>
+              ) : null}
               {CATEGORY_ORDER.map((cat) => {
                 const v = totals[cat];
                 if (v === 0 && cat !== "liability") return null;

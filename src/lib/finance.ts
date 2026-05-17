@@ -4,6 +4,7 @@ import type {
   CategoryTotals,
   FinanceData,
   Insight,
+  InsurancePolicy,
   Snapshot,
 } from "./types";
 
@@ -96,14 +97,60 @@ export function signedBalance(account: Account, raw: number): number {
   return amount;
 }
 
+export function insuranceTotal(policies: InsurancePolicy[] | undefined): number {
+  return (policies ?? [])
+    .filter((p) => !p.archived)
+    .reduce((sum, p) => sum + (p.surrenderValue ?? 0), 0);
+}
+
+function accountBalanceSum(
+  snapshot: Snapshot,
+  accounts: Account[],
+  excludeCategories?: AccountCategory[],
+): number {
+  const exclude = new Set(excludeCategories ?? []);
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  return Object.entries(snapshot.balances).reduce((sum, [id, raw]) => {
+    const account = byId.get(id);
+    if (!account || account.archived) return sum;
+    if (exclude.has(account.category)) return sum;
+    return sum + signedBalance(account, raw);
+  }, 0);
+}
+
+/** Full net worth including insurance surrender values. */
 export function snapshotNetWorth(
+  snapshot: Snapshot,
+  accounts: Account[],
+  insurancePolicies?: InsurancePolicy[],
+): number {
+  return (
+    accountBalanceSum(snapshot, accounts) +
+    insuranceTotal(insurancePolicies)
+  );
+}
+
+/** Net worth excluding CPF, SRS, and other retirement-category accounts. */
+export function snapshotLiquidNetWorth(
+  snapshot: Snapshot,
+  accounts: Account[],
+  insurancePolicies?: InsurancePolicy[],
+): number {
+  return (
+    accountBalanceSum(snapshot, accounts, ["retirement"]) +
+    insuranceTotal(insurancePolicies)
+  );
+}
+
+export function retirementTotal(
   snapshot: Snapshot,
   accounts: Account[],
 ): number {
   const byId = new Map(accounts.map((a) => [a.id, a]));
   return Object.entries(snapshot.balances).reduce((sum, [id, raw]) => {
     const account = byId.get(id);
-    if (!account || account.archived) return sum;
+    if (!account || account.archived || account.category !== "retirement")
+      return sum;
     return sum + signedBalance(account, raw);
   }, 0);
 }
@@ -249,10 +296,32 @@ export function generateInsights(data: FinanceData): Insight[] {
 
   const accounts = data.accounts.filter((a) => !a.archived);
   const totals = categoryTotals(latest, accounts);
-  const netWorth = snapshotNetWorth(latest, accounts);
+  const policies = data.insurancePolicies;
+  const netWorth = snapshotNetWorth(latest, accounts, policies);
+  const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies);
   const prev = previousSnapshot(data, latest);
-  const prevNw = prev ? snapshotNetWorth(prev, accounts) : null;
+  const prevNw = prev ? snapshotNetWorth(prev, accounts, policies) : null;
   const { percent: momPct } = monthOverMonthChange(netWorth, prevNw);
+
+  const retTotal = retirementTotal(latest, accounts);
+  if (retTotal > 0 && netWorth > 0) {
+    insights.push({
+      id: "liquid-nw",
+      severity: "info",
+      title: "Liquid vs total net worth",
+      body: `Liquid net worth is ${formatCurrency(liquidNw)} (${((liquidNw / netWorth) * 100).toFixed(0)}% of total). ${formatCurrency(retTotal)} sits in CPF & SRS, which are excluded from liquid figures.`,
+    });
+  }
+
+  const insTotal = insuranceTotal(policies);
+  if (insTotal <= 0) {
+    insights.push({
+      id: "add-insurance",
+      severity: "info",
+      title: "Track insurance cash values",
+      body: "Add whole-life, ILP, or endowment policies on the Insurance tab to include surrender values in your net worth.",
+    });
+  }
 
   const emergencyMonths = data.settings?.emergencyFundMonths ?? 6;
   const monthlyExpenses = latest.monthlyExpenses;
