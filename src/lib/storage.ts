@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { head, put } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 import { normalizeFinanceData } from "./normalize";
 import type { FinanceData } from "./types";
 
@@ -19,10 +19,10 @@ function isBlobStorageEnabled(): boolean {
 
 async function readFromBlob(): Promise<FinanceData | null> {
   try {
-    const meta = await head(BLOB_PATHNAME);
-    const res = await fetch(meta.url);
-    if (!res.ok) return null;
-    return (await res.json()) as FinanceData;
+    const result = await get(BLOB_PATHNAME, { access: "private" });
+    if (!result || result.statusCode !== 200 || !result.stream) return null;
+    const text = await new Response(result.stream).text();
+    return normalizeFinanceData(JSON.parse(text) as FinanceData);
   } catch {
     return null;
   }
@@ -30,7 +30,7 @@ async function readFromBlob(): Promise<FinanceData | null> {
 
 async function writeToBlob(data: FinanceData): Promise<void> {
   await put(BLOB_PATHNAME, JSON.stringify(data, null, 2), {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
     contentType: "application/json",
