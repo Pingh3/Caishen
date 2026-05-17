@@ -31,6 +31,8 @@ export type Holding = {
   name?: string;
   quantity: number;
   market: StockMarket;
+  /** Average buy price in native currency (USD for US, SGD for SG) */
+  avgEntryPrice: number;
   /** Brokerage account to sync live value into */
   linkedAccountId?: string;
 };

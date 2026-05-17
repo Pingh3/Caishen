@@ -1,12 +1,17 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { formatCurrency, formatUsd } from "@/lib/finance";
-import { holdingValueSgd } from "@/lib/market";
+import { formatCurrency, formatPercent, formatUsd } from "@/lib/finance";
+import { holdingPnl, holdingValueSgd, normalizeSymbol } from "@/lib/market";
 import type { FinanceData, Holding, QuoteResult, StockMarket } from "@/lib/types";
 
 function newId(): string {
   return `h-${Date.now().toString(36)}`;
+}
+
+function accountName(data: FinanceData, id?: string): string | null {
+  if (!id) return null;
+  return data.accounts.find((a) => a.id === id)?.name ?? null;
 }
 
 export default function InvestmentsPage() {
@@ -14,10 +19,13 @@ export default function InvestmentsPage() {
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
   const [usdToSgd, setUsdToSgd] = useState(1.35);
   const [loading, setLoading] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [symbol, setSymbol] = useState("");
   const [quantity, setQuantity] = useState("");
-  const [market, setMarket] = useState<StockMarket>("US");
+  const [entryPrice, setEntryPrice] = useState("");
+  const [market, setMarket] = useState<StockMarket | null>(null);
+  const [detectedName, setDetectedName] = useState<string | null>(null);
   const [linkedAccountId, setLinkedAccountId] = useState("");
   const [message, setMessage] = useState("");
 
@@ -47,6 +55,37 @@ export default function InvestmentsPage() {
     }
   }, []);
 
+  const detectSymbol = useCallback(async (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      setMarket(null);
+      setDetectedName(null);
+      return;
+    }
+    setDetecting(true);
+    setMessage("");
+    try {
+      const res = await fetch(
+        `/api/market/detect?symbol=${encodeURIComponent(trimmed)}`,
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        setMarket(null);
+        setDetectedName(null);
+        setMessage(json.error ?? "Ticker not found");
+        return;
+      }
+      setMarket(json.market as StockMarket);
+      setDetectedName(json.quote?.name ?? null);
+      setUsdToSgd(json.usdToSgd ?? usdToSgd);
+      setSymbol(normalizeSymbol(trimmed));
+    } catch {
+      setMessage("Could not detect market. Check your connection.");
+    } finally {
+      setDetecting(false);
+    }
+  }, [usdToSgd]);
+
   useEffect(() => {
     fetch("/api/finance")
       .then((r) => r.json())
@@ -64,33 +103,54 @@ export default function InvestmentsPage() {
   }, [holdings, refreshQuotes]);
 
   async function saveData(next: FinanceData) {
-    await fetch("/api/finance", {
+    const res = await fetch("/api/finance", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(next),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setMessage(err.error ?? "Failed to save");
+      return false;
+    }
     setData(next);
+    return true;
   }
 
   async function onAdd(e: FormEvent) {
     e.preventDefault();
-    if (!data || !symbol.trim() || !quantity.trim()) return;
-    const qty = Number(quantity);
-    if (Number.isNaN(qty) || qty <= 0) {
-      setMessage("Enter a valid quantity");
+    if (!data || !symbol.trim() || !quantity.trim() || !entryPrice.trim()) {
+      setMessage("Symbol, quantity, and entry price are required.");
       return;
     }
+    if (!market) {
+      setMessage("Wait for market detection (SG/US) or check the symbol.");
+      return;
+    }
+    const qty = Number(quantity);
+    const entry = Number(entryPrice.replace(/,/g, ""));
+    if (Number.isNaN(qty) || qty <= 0 || Number.isNaN(entry) || entry <= 0) {
+      setMessage("Enter valid quantity and entry price.");
+      return;
+    }
+
     const holding: Holding = {
       id: newId(),
-      symbol: symbol.trim().toUpperCase(),
+      symbol: normalizeSymbol(symbol),
       quantity: qty,
       market,
+      avgEntryPrice: entry,
       linkedAccountId: linkedAccountId || undefined,
     };
     const next = { ...data, holdings: [...holdings, holding] };
-    await saveData(next);
+    const ok = await saveData(next);
+    if (!ok) return;
     setSymbol("");
     setQuantity("");
+    setEntryPrice("");
+    setMarket(null);
+    setDetectedName(null);
+    setLinkedAccountId("");
     setMessage("");
     await refreshQuotes(next.holdings!);
   }
@@ -142,22 +202,32 @@ export default function InvestmentsPage() {
     setMessage(
       byAccount.size > 0
         ? `Updated ${byAccount.size} linked account(s) in latest snapshot.`
-        : `Portfolio total ${formatCurrency(totalSgd)} — link holdings to accounts to sync.`,
+        : `Portfolio total ${formatCurrency(totalSgd)} — link holdings to Moomoo / Syfe / Endowus to sync.`,
     );
   }
 
   const quoteMap = new Map(
     quotes.map((q) => [`${q.market}:${q.symbol}`, q]),
   );
-  const totalSgd = holdings.reduce((sum, h) => {
+
+  let totalValue = 0;
+  let totalCost = 0;
+  for (const h of holdings) {
     const q = quoteMap.get(`${h.market}:${h.symbol.toUpperCase()}`);
-    return sum + holdingValueSgd(h, q);
-  }, 0);
+    const { costSgd, valueSgd } = holdingPnl(h, q, usdToSgd);
+    totalCost += costSgd;
+    totalValue += valueSgd;
+  }
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : null;
 
   const brokerageAccounts =
     data?.accounts.filter(
       (a) => !a.archived && a.category === "investments",
     ) ?? [];
+
+  const entryLabel =
+    market === "US" ? "Entry price (USD)" : market === "SG" ? "Entry price (SGD)" : "Entry price";
 
   return (
     <div className="space-y-8">
@@ -165,8 +235,8 @@ export default function InvestmentsPage() {
         <div>
           <h2 className="text-lg font-semibold text-primary">Live investments</h2>
           <p className="text-sm text-secondary">
-            US prices in USD, converted at {usdToSgd.toFixed(4)} USD/SGD. SG
-            stocks in SGD. Refreshes every minute.
+            Ticker auto-detects SGX vs US. P&amp;L in SGD at {usdToSgd.toFixed(4)}{" "}
+            USD/SGD.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -189,6 +259,20 @@ export default function InvestmentsPage() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-secondary">
+        <p className="font-medium text-primary">Brokerages (Moomoo, Syfe, Endowus)</p>
+        <p className="mt-1 leading-relaxed">
+          These platforms don&apos;t offer a simple personal API to pull your
+          holdings automatically. Link each stock to{" "}
+          <strong className="text-primary">Moomoo</strong>,{" "}
+          <strong className="text-primary">Syfe</strong>, or{" "}
+          <strong className="text-primary">Endowus</strong> below, then use{" "}
+          <em>Sync to snapshot</em> to update account balances. For Syfe/Endowus
+          portfolio totals without individual tickers, enter the balance manually on
+          the Update tab.
+        </p>
+      </div>
+
       {lastRefresh ? (
         <p className="text-xs text-muted">
           Last updated{" "}
@@ -199,42 +283,83 @@ export default function InvestmentsPage() {
         </p>
       ) : null}
 
-      <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
-        <p className="text-xs font-medium uppercase text-muted">Portfolio (SGD)</p>
-        <p className="font-mono text-3xl font-semibold tabular-nums text-primary">
-          {formatCurrency(totalSgd)}
-        </p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
+          <p className="text-xs font-medium uppercase text-muted">Value (SGD)</p>
+          <p className="font-mono text-2xl font-semibold tabular-nums text-primary">
+            {formatCurrency(totalValue)}
+          </p>
+        </div>
+        <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
+          <p className="text-xs font-medium uppercase text-muted">Cost (SGD)</p>
+          <p className="font-mono text-2xl font-semibold tabular-nums text-primary">
+            {formatCurrency(totalCost)}
+          </p>
+        </div>
+        <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
+          <p className="text-xs font-medium uppercase text-muted">Unrealised P&amp;L</p>
+          <p
+            className={`font-mono text-2xl font-semibold tabular-nums ${
+              totalPnl >= 0 ? "text-positive" : "text-negative"
+            }`}
+          >
+            {formatCurrency(totalPnl)}
+            {totalPnlPct !== null ? (
+              <span className="ml-2 text-base">
+                ({formatPercent(totalPnlPct, true)})
+              </span>
+            ) : null}
+          </p>
+        </div>
       </div>
 
       {holdings.length > 0 ? (
         <div className="overflow-x-auto rounded-xl border border-surface-border">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[900px] text-sm">
             <thead className="bg-surface-raised text-left text-xs text-muted">
               <tr>
                 <th className="px-4 py-3">Symbol</th>
+                <th className="px-4 py-3">Broker</th>
                 <th className="px-4 py-3 text-right">Qty</th>
-                <th className="px-4 py-3 text-right">Price</th>
-                <th className="px-4 py-3 text-right">Value (SGD)</th>
-                <th className="px-4 py-3 text-right">Day %</th>
+                <th className="px-4 py-3 text-right">Entry</th>
+                <th className="px-4 py-3 text-right">Last</th>
+                <th className="px-4 py-3 text-right">Value</th>
+                <th className="px-4 py-3 text-right">P&amp;L</th>
+                <th className="px-4 py-3 text-right">Day</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {holdings.map((h) => {
                 const q = quoteMap.get(`${h.market}:${h.symbol.toUpperCase()}`);
-                const val = holdingValueSgd(h, q);
+                const { pnlSgd, pnlPercent, valueSgd } = holdingPnl(
+                  h,
+                  q,
+                  usdToSgd,
+                );
                 const ch = q?.changePercent;
+                const broker = data ? accountName(data, h.linkedAccountId) : null;
                 return (
                   <tr key={h.id} className="border-t border-surface-border">
                     <td className="px-4 py-3">
                       <span className="font-medium text-primary">{h.symbol}</span>
-                      <span className="ml-2 text-xs text-muted">{h.market}</span>
+                      <span className="ml-2 rounded bg-surface-border px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                        {h.market}
+                      </span>
                       {q?.name ? (
                         <p className="text-xs text-muted">{q.name}</p>
                       ) : null}
                     </td>
+                    <td className="px-4 py-3 text-xs text-secondary">
+                      {broker ?? "—"}
+                    </td>
                     <td className="px-4 py-3 text-right font-mono tabular-nums">
                       {h.quantity}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
+                      {h.market === "US"
+                        ? formatUsd(h.avgEntryPrice)
+                        : formatCurrency(h.avgEntryPrice)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
                       {q ? (
@@ -254,7 +379,20 @@ export default function InvestmentsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right font-mono tabular-nums">
-                      {formatCurrency(val)}
+                      {formatCurrency(valueSgd)}
+                    </td>
+                    <td
+                      className={`px-4 py-3 text-right font-mono text-xs tabular-nums ${
+                        pnlSgd >= 0 ? "text-positive" : "text-negative"
+                      }`}
+                    >
+                      {formatCurrency(pnlSgd)}
+                      {pnlPercent !== null ? (
+                        <>
+                          <br />
+                          {formatPercent(pnlPercent, true)}
+                        </>
+                      ) : null}
                     </td>
                     <td
                       className={`px-4 py-3 text-right font-mono tabular-nums ${
@@ -293,17 +431,30 @@ export default function InvestmentsPage() {
         className="mx-auto max-w-xl space-y-4 rounded-xl border border-surface-border bg-surface-raised p-4"
       >
         <h3 className="text-sm font-medium text-primary">Add holding</h3>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block text-sm sm:col-span-1">
-            <span className="text-secondary">Symbol</span>
-            <input
-              className="mt-1 w-full font-mono uppercase"
-              placeholder="AAPL / D05"
-              value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-              required
-            />
-          </label>
+        <label className="block text-sm">
+          <span className="text-secondary">Symbol</span>
+          <input
+            className="mt-1 w-full font-mono uppercase"
+            placeholder="NVDA, D05, ES3…"
+            value={symbol}
+            onChange={(e) => {
+              setSymbol(e.target.value);
+              setMarket(null);
+              setDetectedName(null);
+            }}
+            onBlur={(e) => detectSymbol(e.target.value)}
+            required
+          />
+          {detecting ? (
+            <p className="mt-1 text-xs text-muted">Detecting market…</p>
+          ) : market ? (
+            <p className="mt-1 text-xs text-positive">
+              Detected: {market === "SG" ? "Singapore (SGD)" : "US (USD)"}
+              {detectedName ? ` · ${detectedName}` : ""}
+            </p>
+          ) : null}
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
           <label className="block text-sm">
             <span className="text-secondary">Quantity</span>
             <input
@@ -314,20 +465,19 @@ export default function InvestmentsPage() {
             />
           </label>
           <label className="block text-sm">
-            <span className="text-secondary">Market</span>
-            <select
-              className="mt-1 w-full"
-              value={market}
-              onChange={(e) => setMarket(e.target.value as StockMarket)}
-            >
-              <option value="US">US (USD → SGD)</option>
-              <option value="SG">Singapore (SGD)</option>
-            </select>
+            <span className="text-secondary">{entryLabel}</span>
+            <input
+              className="mt-1 w-full font-mono"
+              placeholder={market === "US" ? "150.00" : "3.20"}
+              value={entryPrice}
+              onChange={(e) => setEntryPrice(e.target.value)}
+              required
+            />
           </label>
         </div>
         {brokerageAccounts.length > 0 ? (
           <label className="block text-sm">
-            <span className="text-secondary">Link to brokerage account (optional)</span>
+            <span className="text-secondary">Brokerage</span>
             <select
               className="mt-1 w-full"
               value={linkedAccountId}
@@ -341,10 +491,15 @@ export default function InvestmentsPage() {
               ))}
             </select>
           </label>
-        ) : null}
+        ) : (
+          <p className="text-xs text-muted">
+            Add Moomoo / Syfe / Endowus on the Accounts tab (quick-add presets).
+          </p>
+        )}
         <button
           type="submit"
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white"
+          disabled={!market || detecting}
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           Add holding
         </button>

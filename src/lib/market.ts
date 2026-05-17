@@ -1,11 +1,15 @@
 import type { Holding, QuoteResult, StockMarket } from "./types";
 
 function yahooSymbol(symbol: string, market: StockMarket): string {
-  const s = symbol.trim().toUpperCase();
+  const s = normalizeSymbol(symbol);
   if (market === "SG") {
-    return s.endsWith(".SI") ? s : `${s}.SI`;
+    return `${s}.SI`;
   }
   return s;
+}
+
+export function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().replace(/\.SI$/i, "");
 }
 
 type YahooChart = {
@@ -19,6 +23,11 @@ type YahooChart = {
       };
     }[];
   };
+};
+
+export type MarketDetection = {
+  market: StockMarket;
+  quote: QuoteResult;
 };
 
 export async function fetchUsdToSgd(): Promise<number> {
@@ -40,7 +49,8 @@ export async function fetchQuote(
   market: StockMarket,
   usdToSgd: number,
 ): Promise<QuoteResult | null> {
-  const ySym = yahooSymbol(symbol, market);
+  const base = normalizeSymbol(symbol);
+  const ySym = yahooSymbol(base, market);
   try {
     const res = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySym)}?interval=1d&range=1d`,
@@ -62,7 +72,7 @@ export async function fetchQuote(
     const priceSgd = currency === "SGD" ? price : price * usdToSgd;
 
     return {
-      symbol: symbol.toUpperCase(),
+      symbol: base,
       market,
       price,
       currency,
@@ -73,6 +83,37 @@ export async function fetchQuote(
   } catch {
     return null;
   }
+}
+
+/** Try Yahoo quotes to infer SG (.SI) vs US listing. */
+export async function detectMarket(
+  symbol: string,
+  usdToSgd: number,
+): Promise<MarketDetection | null> {
+  const base = normalizeSymbol(symbol);
+  if (!base) return null;
+
+  if (/\.SI$/i.test(symbol.trim())) {
+    const quote = await fetchQuote(base, "SG", usdToSgd);
+    return quote ? { market: "SG", quote } : null;
+  }
+
+  const [sgQuote, usQuote] = await Promise.all([
+    fetchQuote(base, "SG", usdToSgd),
+    fetchQuote(base, "US", usdToSgd),
+  ]);
+
+  if (sgQuote && usQuote) {
+    const looksSg =
+      /^[A-Z]\d{2}[A-Z]?$/.test(base) ||
+      (base.length <= 4 && /^[A-Z0-9]+$/.test(base) && !/^[A-Z]{4,5}$/.test(base));
+    return looksSg
+      ? { market: "SG", quote: sgQuote }
+      : { market: "US", quote: usQuote };
+  }
+  if (sgQuote) return { market: "SG", quote: sgQuote };
+  if (usQuote) return { market: "US", quote: usQuote };
+  return null;
 }
 
 export async function fetchQuotesForHoldings(
@@ -91,4 +132,28 @@ export function holdingValueSgd(
 ): number {
   if (!quote) return 0;
   return holding.quantity * quote.priceSgd;
+}
+
+export function entryPriceSgd(
+  holding: Holding,
+  usdToSgd: number,
+): number {
+  if (holding.market === "SG") return holding.avgEntryPrice;
+  return holding.avgEntryPrice * usdToSgd;
+}
+
+export function holdingCostSgd(holding: Holding, usdToSgd: number): number {
+  return holding.quantity * entryPriceSgd(holding, usdToSgd);
+}
+
+export function holdingPnl(
+  holding: Holding,
+  quote: QuoteResult | undefined,
+  usdToSgd: number,
+): { pnlSgd: number; pnlPercent: number | null; costSgd: number; valueSgd: number } {
+  const costSgd = holdingCostSgd(holding, usdToSgd);
+  const valueSgd = holdingValueSgd(holding, quote);
+  const pnlSgd = valueSgd - costSgd;
+  const pnlPercent = costSgd > 0 ? (pnlSgd / costSgd) * 100 : null;
+  return { pnlSgd, pnlPercent, costSgd, valueSgd };
 }
