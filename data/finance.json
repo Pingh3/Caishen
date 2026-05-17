@@ -1,6 +1,8 @@
 {
   "accounts": [
-    { "id": "dbs", "name": "DBS / OCBC / UOB", "category": "cash" },
+    { "id": "dbs", "name": "DBS — Savings", "category": "cash" },
+    { "id": "ocbc", "name": "OCBC — Savings", "category": "cash" },
+    { "id": "uob", "name": "UOB — Savings", "category": "cash" },
     { "id": "savings", "name": "Savings / FD", "category": "cash" },
     { "id": "cpf-oa", "name": "CPF Ordinary Account (OA)", "category": "retirement" },
     { "id": "cpf-sa", "name": "CPF Special Account (SA)", "category": "retirement" },
@@ -84,6 +86,8 @@
       "monthlyExpenses": 4300,
       "balances": {
         "dbs": 11200,
+        "ocbc": 0,
+        "uob": 0,
         "savings": 28000,
         "cpf-oa": 64500,
         "cpf-sa": 51200,

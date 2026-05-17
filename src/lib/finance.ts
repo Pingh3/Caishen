@@ -17,7 +17,9 @@ export const CATEGORY_LABELS: Record<AccountCategory, string> = {
 };
 
 export const SG_ACCOUNT_PRESETS = [
-  { name: "DBS / OCBC / UOB — Savings", category: "cash" as const },
+  { name: "DBS — Savings", category: "cash" as const },
+  { name: "OCBC — Savings", category: "cash" as const },
+  { name: "UOB — Savings", category: "cash" as const },
   { name: "CPF Ordinary Account (OA)", category: "retirement" as const },
   { name: "CPF Special Account (SA)", category: "retirement" as const },
   { name: "CPF MediSave", category: "retirement" as const, notes: "Illiquid" },

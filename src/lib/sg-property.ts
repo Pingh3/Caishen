@@ -1,5 +1,5 @@
 import type { PropertyProfile, SgHouseType } from "./types";
-import { townFromPostal } from "./sg-postal";
+import { hdbTownFromPostal, townFromPostal } from "./sg-postal";
 
 const HDB_RESOURCE =
   "36bcb38b-9569-4933-87a4-4df5cdb96ecf";
@@ -70,16 +70,12 @@ export type PropertyEstimate = {
   disclaimer: string;
 };
 
-function toHdbTownName(town: string): string {
-  return town.toUpperCase();
-}
-
 async function fetchHdbMedian(
-  town: string,
+  postalCode: string,
   flatType: string,
 ): Promise<{ median: number; count: number } | null> {
   try {
-    const hdbTown = toHdbTownName(town);
+    const hdbTown = hdbTownFromPostal(postalCode);
     const url = new URL("https://data.gov.sg/api/action/datastore_search");
     url.searchParams.set("resource_id", HDB_RESOURCE);
     url.searchParams.set("limit", "500");
@@ -163,7 +159,7 @@ export async function estimateProperty(
   let sampleCount: number | undefined;
 
   if (flatTypeLabel) {
-    const hdb = await fetchHdbMedian(town, flatTypeLabel);
+    const hdb = await fetchHdbMedian(profile.postalCode, flatTypeLabel);
     if (hdb) {
       estimatedValue = hdb.median;
       source = "hdb_data";

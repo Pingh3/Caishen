@@ -94,6 +94,12 @@ export type FinanceData = {
     birthYear?: number;
     emergencyFundMonths?: number;
     timezone?: string;
+    /** Gross monthly income in SGD (used for savings & projections) */
+    monthlyIncome?: number;
+    /** Optional annual bonus in SGD, spread evenly across 12 months in projections */
+    annualBonus?: number;
+    /** Expected annual investment return % for projections (default 5) */
+    projectionReturnPct?: number;
   };
 };
 
