@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { loadFinanceData, persistFinanceData } from "@/lib/client-finance";
 import { formatCurrency, formatPercent, formatUsd } from "@/lib/finance";
 import { normalizeSymbol } from "@/lib/market";
 import {
@@ -9,9 +10,9 @@ import {
   computeJournalStats,
   holdingsFromOpenTrades,
   isTradeOpen,
-  tradeCostNative,
   tradeDaysHeld,
   tradePnlSgd,
+  tradeTotalCommission,
 } from "@/lib/trades";
 import type {
   FinanceData,
@@ -27,9 +28,30 @@ function newId(): string {
   return `tr-${Date.now().toString(36)}`;
 }
 
-function parseNum(s: string): number {
-  return Number(s.replace(/,/g, ""));
+function parseNum(s: string): number | undefined {
+  const t = s.trim().replace(/,/g, "");
+  if (!t) return undefined;
+  const n = Number(t);
+  return Number.isNaN(n) ? undefined : n;
 }
+
+const emptyForm = {
+  entryDate: new Date().toISOString().slice(0, 10),
+  exitDate: "",
+  category: "stocks" as TradeCategory,
+  symbol: "",
+  description: "",
+  market: null as StockMarket | null,
+  quantity: "",
+  entryPrice: "",
+  exitPrice: "",
+  entryCommission: "",
+  exitCommission: "",
+  dividendIncome: "",
+  ideaSource: "",
+  notes: "",
+  linkedAccountId: "",
+};
 
 export default function JournalPage() {
   const [data, setData] = useState<FinanceData | null>(null);
@@ -37,26 +59,19 @@ export default function JournalPage() {
   const [usdToSgd, setUsdToSgd] = useState(1.35);
   const [filter, setFilter] = useState<Filter>("all");
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"ok" | "err">("ok");
   const [detecting, setDetecting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [entryDate, setEntryDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
-  const [exitDate, setExitDate] = useState("");
-  const [category, setCategory] = useState<TradeCategory>("stocks");
-  const [symbol, setSymbol] = useState("");
-  const [description, setDescription] = useState("");
-  const [market, setMarket] = useState<StockMarket | null>(null);
-  const [quantity, setQuantity] = useState("");
-  const [entryPrice, setEntryPrice] = useState("");
-  const [exitPrice, setExitPrice] = useState("");
-  const [fees, setFees] = useState("");
-  const [dividendIncome, setDividendIncome] = useState("");
-  const [ideaSource, setIdeaSource] = useState("");
-  const [notes, setNotes] = useState("");
-  const [linkedAccountId, setLinkedAccountId] = useState("");
+  const [form, setForm] = useState(emptyForm);
 
   const trades = useMemo(() => data?.trades ?? [], [data?.trades]);
+
+  const setMsg = (text: string, tone: "ok" | "err" = "ok") => {
+    setMessage(text);
+    setMessageTone(tone);
+  };
 
   const refreshQuotes = useCallback(async (list: Trade[]) => {
     const openStocks = list.filter(
@@ -72,18 +87,22 @@ export default function JournalPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ holdings }),
     });
-    const json = (await res.json()) as { quotes: QuoteResult[]; usdToSgd: number };
+    if (!res.ok) return;
+    const json = (await res.json()) as {
+      quotes: QuoteResult[];
+      usdToSgd: number;
+    };
     setQuotes(json.quotes);
     setUsdToSgd(json.usdToSgd);
   }, []);
 
   useEffect(() => {
-    fetch("/api/finance")
-      .then((r) => r.json())
-      .then((json: FinanceData) => {
+    loadFinanceData()
+      .then((json) => {
         setData(json);
         if (json.trades?.length) refreshQuotes(json.trades);
-      });
+      })
+      .catch(() => setMsg("Could not load data.", "err"));
   }, [refreshQuotes]);
 
   const quoteMap = useMemo(
@@ -97,36 +116,69 @@ export default function JournalPage() {
   );
 
   const filtered = useMemo(() => {
-    const sorted = [...trades].sort(
-      (a, b) =>
-        new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime(),
-    );
-    return sorted.filter((t) => {
-      if (filter === "open") return isTradeOpen(t);
-      if (filter === "closed") return !isTradeOpen(t);
-      if (filter === "stocks") return t.category === "stocks";
-      if (filter === "others") return t.category !== "stocks";
-      return true;
-    });
+    return [...trades]
+      .sort(
+        (a, b) =>
+          new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime(),
+      )
+      .filter((t) => {
+        if (filter === "open") return isTradeOpen(t);
+        if (filter === "closed") return !isTradeOpen(t);
+        if (filter === "stocks") return t.category === "stocks";
+        if (filter === "others") return t.category !== "stocks";
+        return true;
+      });
   }, [trades, filter]);
 
-  async function saveData(next: FinanceData) {
-    const res = await fetch("/api/finance", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    });
-    if (!res.ok) {
-      setMessage("Failed to save.");
+  async function saveData(next: FinanceData): Promise<boolean> {
+    setSaving(true);
+    const result = await persistFinanceData(next);
+    setSaving(false);
+    if (!result.ok) {
+      setMsg(result.error, "err");
       return false;
     }
-    setData(next);
-    await refreshQuotes(next.trades ?? []);
+    setData(result.data);
+    await refreshQuotes(result.data.trades ?? []);
     return true;
   }
 
+  function clearForm() {
+    setEditingId(null);
+    setForm({ ...emptyForm, entryDate: new Date().toISOString().slice(0, 10) });
+  }
+
+  function loadTradeToForm(t: Trade) {
+    setEditingId(t.id);
+    setForm({
+      entryDate: t.entryDate,
+      exitDate: t.exitDate ?? "",
+      category: t.category,
+      symbol: t.symbol,
+      description: t.description ?? "",
+      market: t.market,
+      quantity: String(t.quantity),
+      entryPrice: String(t.entryPrice),
+      exitPrice: t.exitPrice !== undefined ? String(t.exitPrice) : "",
+      entryCommission:
+        t.entryCommission !== undefined
+          ? String(t.entryCommission)
+          : t.fees !== undefined
+            ? String(t.fees)
+            : "",
+      exitCommission:
+        t.exitCommission !== undefined ? String(t.exitCommission) : "",
+      dividendIncome:
+        t.dividendIncome !== undefined ? String(t.dividendIncome) : "",
+      ideaSource: t.ideaSource ?? "",
+      notes: t.notes ?? "",
+      linkedAccountId: t.linkedAccountId ?? "",
+    });
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  }
+
   async function detectSymbol(raw: string) {
-    if (category !== "stocks" || !raw.trim()) return;
+    if (form.category !== "stocks" || !raw.trim()) return;
     setDetecting(true);
     try {
       const res = await fetch(
@@ -134,79 +186,132 @@ export default function JournalPage() {
       );
       const json = await res.json();
       if (res.ok) {
-        setMarket(json.market);
-        setSymbol(normalizeSymbol(raw));
+        setForm((f) => ({
+          ...f,
+          market: json.market,
+          symbol: normalizeSymbol(raw),
+        }));
         setUsdToSgd(json.usdToSgd ?? usdToSgd);
+      } else {
+        setMsg(json.error ?? "Ticker not found", "err");
       }
     } finally {
       setDetecting(false);
     }
   }
 
-  async function onAdd(e: FormEvent) {
-    e.preventDefault();
-    if (!data || !symbol.trim()) return;
-    const qty = parseNum(quantity);
-    const entry = parseNum(entryPrice);
-    if (Number.isNaN(qty) || qty <= 0 || Number.isNaN(entry) || entry <= 0) {
-      setMessage("Quantity and entry price are required.");
-      return;
+  function buildTradeFromForm(id: string): Trade | string {
+    const qty = parseNum(form.quantity);
+    const entry = parseNum(form.entryPrice);
+    if (qty === undefined || qty <= 0 || entry === undefined || entry <= 0) {
+      return "Quantity and entry price are required.";
     }
     const resolvedMarket =
-      market ?? (category === "stocks" ? null : "SG");
-    if (category === "stocks" && !resolvedMarket) {
-      setMessage("Detect market for stocks (tab out of symbol field).");
+      form.market ?? (form.category === "stocks" ? null : "SG");
+    if (form.category === "stocks" && !resolvedMarket) {
+      return "Tab out of the symbol field to detect SG vs US market.";
+    }
+
+    return {
+      id,
+      entryDate: form.entryDate,
+      exitDate: form.exitDate.trim() || undefined,
+      market: (resolvedMarket ?? "SG") as StockMarket,
+      category: form.category,
+      symbol:
+        form.category === "stocks"
+          ? normalizeSymbol(form.symbol)
+          : form.symbol.trim(),
+      description: form.description.trim() || undefined,
+      quantity: qty,
+      entryPrice: entry,
+      exitPrice: parseNum(form.exitPrice),
+      entryCommission: parseNum(form.entryCommission),
+      exitCommission: parseNum(form.exitCommission),
+      dividendIncome: parseNum(form.dividendIncome),
+      linkedAccountId: form.linkedAccountId || undefined,
+      ideaSource: form.ideaSource.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+    };
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!data) return;
+    const built = buildTradeFromForm(editingId ?? newId());
+    if (typeof built === "string") {
+      setMsg(built, "err");
       return;
     }
 
-    const trade: Trade = {
-      id: newId(),
-      entryDate,
-      exitDate: exitDate || undefined,
-      market: resolvedMarket as StockMarket,
-      category,
-      symbol: category === "stocks" ? normalizeSymbol(symbol) : symbol.trim(),
-      description: description.trim() || undefined,
-      quantity: qty,
-      entryPrice: entry,
-      exitPrice: exitPrice ? parseNum(exitPrice) : undefined,
-      fees: fees ? parseNum(fees) : undefined,
-      dividendIncome: dividendIncome ? parseNum(dividendIncome) : undefined,
-      linkedAccountId: linkedAccountId || undefined,
-      ideaSource: ideaSource.trim() || undefined,
-      notes: notes.trim() || undefined,
-    };
+    const nextTrades = editingId
+      ? trades.map((t) => (t.id === editingId ? built : t))
+      : [...trades, built];
 
-    const ok = await saveData({ ...data, trades: [...trades, trade] });
+    const ok = await saveData({ ...data, trades: nextTrades });
     if (!ok) return;
-    setSymbol("");
-    setDescription("");
-    setQuantity("");
-    setEntryPrice("");
-    setExitPrice("");
-    setFees("");
-    setDividendIncome("");
-    setIdeaSource("");
-    setNotes("");
-    setMarket(null);
-    setMessage("Trade logged.");
+    setMsg(editingId ? "Trade updated." : "Trade added.");
+    clearForm();
   }
 
-  async function removeTrade(id: string) {
+  async function removeTrade(t: Trade) {
     if (!data) return;
-    await saveData({ ...data, trades: trades.filter((t) => t.id !== id) });
+    const label = `${t.symbol} (${t.entryDate})`;
+    if (!window.confirm(`Remove trade ${label}? This cannot be undone.`)) return;
+
+    const nextTrades = (data.trades ?? []).filter((x) => x.id !== t.id);
+    const ok = await saveData({ ...data, trades: nextTrades });
+    if (ok) {
+      setMsg(`Removed ${t.symbol}.`);
+      if (editingId === t.id) clearForm();
+    }
   }
 
   async function syncToInvestments() {
     if (!data) return;
-    const derived = holdingsFromOpenTrades(trades);
+    const derived = holdingsFromOpenTrades(data.trades ?? []);
+    if (derived.length === 0) {
+      setMsg(
+        "No open stock trades to sync. Add a trade without an exit date, category Stocks.",
+        "err",
+      );
+      return;
+    }
     const manual = (data.holdings ?? []).filter(
       (h) => !h.id.startsWith("from-trade-"),
     );
-    await saveData({ ...data, holdings: [...manual, ...derived] });
-    setMessage(
-      `Synced ${derived.length} open stock position(s) to Investments. Review live prices there.`,
-    );
+    const ok = await saveData({
+      ...data,
+      holdings: [...manual, ...derived],
+    });
+    if (ok) {
+      setMsg(
+        `Synced ${derived.length} position(s) to Investments. Open that tab and refresh prices.`,
+      );
+    }
+  }
+
+  async function refreshDividends() {
+    if (!data || trades.length === 0) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/journal/dividends", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) {
+        setMsg(json.error ?? "Dividend update failed", "err");
+        return;
+      }
+      const refreshed = await loadFinanceData();
+      setData(refreshed);
+      await refreshQuotes(refreshed.trades ?? []);
+      setMsg(
+        `Updated dividends for ${json.updated ?? 0} stock trade(s) from Yahoo Finance.`,
+      );
+    } catch {
+      setMsg("Dividend update failed.", "err");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const brokerageAccounts =
@@ -214,30 +319,58 @@ export default function JournalPage() {
       (a) => !a.archived && a.category === "investments",
     ) ?? [];
 
-  const entryLabel =
-    market === "US" ? "Entry (USD)" : market === "SG" ? "Entry (SGD)" : "Entry price";
+  const currencyHint =
+    form.market === "US" ? "USD" : form.market === "SG" ? "SGD" : "native";
+
+  if (!data) {
+    return <p className="text-sm text-muted">Loading journal…</p>;
+  }
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-primary">Trading journal</h2>
           <p className="text-sm text-secondary">
-            Log entries once — open positions sync to{" "}
+            Log each buy/sell once. Commission is in {currencyHint} per trade.
+            Open stocks sync to{" "}
             <Link href="/investments" className="text-accent hover:underline">
               Investments
-            </Link>{" "}
-            for live prices.
+            </Link>
+            .
           </p>
         </div>
-        <button
-          type="button"
-          onClick={syncToInvestments}
-          className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white"
-        >
-          Sync open stocks → Investments
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={refreshDividends}
+            className="rounded-lg border border-surface-border px-3 py-2 text-sm text-secondary hover:text-primary disabled:opacity-50"
+          >
+            Update dividends
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={syncToInvestments}
+            className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Sync open stocks → Investments
+          </button>
+        </div>
       </div>
+
+      {message ? (
+        <p
+          className={`rounded-lg border px-3 py-2 text-sm ${
+            messageTone === "err"
+              ? "border-negative/40 bg-negative/10 text-negative"
+              : "border-positive/40 bg-positive/10 text-positive"
+          }`}
+        >
+          {message}
+        </p>
+      ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
@@ -249,7 +382,7 @@ export default function JournalPage() {
           >
             {formatCurrency(stats.realizedPnlSgd)}
           </p>
-          <p className="text-xs text-muted">{stats.closedCount} closed trades</p>
+          <p className="text-xs text-muted">{stats.closedCount} closed</p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <p className="text-xs uppercase text-muted">Open unrealised</p>
@@ -261,7 +394,7 @@ export default function JournalPage() {
             {formatCurrency(stats.openUnrealizedSgd)}
           </p>
           <p className="text-xs text-muted">
-            {stats.openCount} open · {formatCurrency(stats.openCostSgd)} cost
+            {stats.openCount} open · {formatCurrency(stats.openCostSgd)}
           </p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
@@ -269,7 +402,6 @@ export default function JournalPage() {
           <p className="font-mono text-xl font-semibold text-primary">
             {stats.winRate !== null ? formatPercent(stats.winRate) : "—"}
           </p>
-          <p className="text-xs text-muted">Closed trades only</p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <p className="text-xs uppercase text-muted">Avg win / loss</p>
@@ -313,45 +445,43 @@ export default function JournalPage() {
 
       {filtered.length > 0 ? (
         <div className="overflow-x-auto rounded-xl border border-surface-border">
-          <table className="w-full min-w-[960px] text-sm">
+          <table className="w-full min-w-[1000px] text-sm">
             <thead className="bg-surface-raised text-left text-xs text-muted">
               <tr>
                 <th className="px-3 py-3">Entry</th>
                 <th className="px-3 py-3">Exit</th>
-                <th className="px-3 py-3">Days</th>
                 <th className="px-3 py-3">Ticker</th>
-                <th className="px-3 py-3">Type</th>
                 <th className="px-3 py-3 text-right">Qty</th>
                 <th className="px-3 py-3 text-right">Entry</th>
-                <th className="px-3 py-3 text-right">Last / Exit</th>
-                <th className="px-3 py-3 text-right">P&amp;L (SGD)</th>
+                <th className="px-3 py-3 text-right">Last/Exit</th>
+                <th className="px-3 py-3 text-right">Comm.</th>
+                <th className="px-3 py-3 text-right">Div.</th>
+                <th className="px-3 py-3 text-right">P&amp;L</th>
                 <th className="px-3 py-3" />
               </tr>
             </thead>
             <tbody>
               {filtered.map((t) => {
-                const open = isTradeOpen(t);
                 const q =
                   t.category === "stocks"
                     ? quoteMap.get(`${t.market}:${t.symbol.toUpperCase()}`)
                     : undefined;
-                const mark = open ? q?.price : t.exitPrice;
+                const mark = isTradeOpen(t) ? q?.price : t.exitPrice;
                 const pnl = tradePnlSgd(t, mark, usdToSgd);
-                const broker = data?.accounts.find(
-                  (a) => a.id === t.linkedAccountId,
-                )?.name;
+                const comm = tradeTotalCommission(t);
+                const fmt = (n: number) =>
+                  t.market === "US" ? formatUsd(n) : formatCurrency(n);
                 return (
                   <tr key={t.id} className="border-t border-surface-border">
                     <td className="px-3 py-2.5 text-xs text-secondary">
                       {t.entryDate}
+                      <br />
+                      <span className="text-muted">{tradeDaysHeld(t)}d</span>
                     </td>
                     <td className="px-3 py-2.5 text-xs text-secondary">
                       {t.exitDate ?? (
                         <span className="text-accent">Open</span>
                       )}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-xs tabular-nums">
-                      {tradeDaysHeld(t)}
                     </td>
                     <td className="px-3 py-2.5">
                       <span className="font-medium text-primary">
@@ -364,32 +494,31 @@ export default function JournalPage() {
                         <p className="text-xs text-muted">{t.description}</p>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-secondary">
-                      {TRADE_CATEGORY_LABELS[t.category]}
-                      {broker ? ` · ${broker}` : ""}
-                    </td>
                     <td className="px-3 py-2.5 text-right font-mono tabular-nums">
                       {t.quantity.toLocaleString()}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums">
-                      {t.market === "US"
-                        ? formatUsd(t.entryPrice)
-                        : formatCurrency(t.entryPrice)}
+                    <td className="px-3 py-2.5 text-right font-mono text-xs">
+                      {fmt(t.entryPrice)}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums">
-                      {mark !== undefined
-                        ? t.market === "US"
-                          ? formatUsd(mark)
-                          : formatCurrency(mark)
+                    <td className="px-3 py-2.5 text-right font-mono text-xs">
+                      {mark !== undefined ? fmt(mark) : "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
+                      {comm > 0 ? fmt(comm) : "—"}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
+                      {t.dividendIncome
+                        ? fmt(t.dividendIncome)
                         : "—"}
+                      {t.dividendsAutoUpdated ? (
+                        <span className="block text-[10px]">auto</span>
+                      ) : null}
                     </td>
                     <td
-                      className={`px-3 py-2.5 text-right font-mono text-xs tabular-nums ${
+                      className={`px-3 py-2.5 text-right font-mono text-xs ${
                         pnl && pnl.pnlSgd >= 0
                           ? "text-positive"
-                          : pnl
-                            ? "text-negative"
-                            : ""
+                          : "text-negative"
                       }`}
                     >
                       {pnl
@@ -400,11 +529,19 @@ export default function JournalPage() {
                           }`
                         : "—"}
                     </td>
-                    <td className="px-3 py-2.5 text-right">
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       <button
                         type="button"
-                        onClick={() => removeTrade(t.id)}
-                        className="text-xs text-muted hover:text-negative"
+                        onClick={() => loadTradeToForm(t)}
+                        className="mr-2 text-xs text-accent hover:underline"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeTrade(t)}
+                        disabled={saving}
+                        className="text-xs text-muted hover:text-negative disabled:opacity-50"
                       >
                         Remove
                       </button>
@@ -416,22 +553,38 @@ export default function JournalPage() {
           </table>
         </div>
       ) : (
-        <p className="text-sm text-muted">No trades in this view yet.</p>
+        <p className="text-sm text-muted">No trades in this view.</p>
       )}
 
       <form
-        onSubmit={onAdd}
+        onSubmit={onSubmit}
         className="mx-auto max-w-2xl space-y-4 rounded-xl border border-surface-border bg-surface-raised p-4"
       >
-        <h3 className="text-sm font-medium text-primary">Log trade</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-primary">
+            {editingId ? "Edit trade" : "Log trade"}
+          </h3>
+          {editingId ? (
+            <button
+              type="button"
+              onClick={clearForm}
+              className="text-xs text-secondary hover:text-primary"
+            >
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="block text-sm">
             <span className="text-secondary">Entry date</span>
             <input
               type="date"
               className="mt-1 w-full"
-              value={entryDate}
-              onChange={(e) => setEntryDate(e.target.value)}
+              value={form.entryDate}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, entryDate: e.target.value }))
+              }
               required
             />
           </label>
@@ -440,18 +593,24 @@ export default function JournalPage() {
             <input
               type="date"
               className="mt-1 w-full"
-              value={exitDate}
-              onChange={(e) => setExitDate(e.target.value)}
+              value={form.exitDate}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, exitDate: e.target.value }))
+              }
             />
           </label>
           <label className="block text-sm">
             <span className="text-secondary">Category</span>
             <select
               className="mt-1 w-full"
-              value={category}
+              value={form.category}
               onChange={(e) => {
-                setCategory(e.target.value as TradeCategory);
-                if (e.target.value !== "stocks") setMarket("SG");
+                const cat = e.target.value as TradeCategory;
+                setForm((f) => ({
+                  ...f,
+                  category: cat,
+                  market: cat === "stocks" ? f.market : "SG",
+                }));
               }}
             >
               {Object.entries(TRADE_CATEGORY_LABELS).map(([k, v]) => (
@@ -462,24 +621,28 @@ export default function JournalPage() {
             </select>
           </label>
         </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block text-sm">
-            <span className="text-secondary">Ticker / ID</span>
+            <span className="text-secondary">Ticker</span>
             <input
               className="mt-1 w-full font-mono uppercase"
-              value={symbol}
-              onChange={(e) => {
-                setSymbol(e.target.value);
-                setMarket(null);
-              }}
+              value={form.symbol}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  symbol: e.target.value,
+                  market: f.category === "stocks" ? null : f.market,
+                }))
+              }
               onBlur={(e) => detectSymbol(e.target.value)}
               required
             />
             {detecting ? (
-              <p className="mt-1 text-xs text-muted">Detecting…</p>
-            ) : market ? (
+              <p className="mt-1 text-xs text-muted">Detecting market…</p>
+            ) : form.market ? (
               <p className="mt-1 text-xs text-positive">
-                {market === "SG" ? "SGX · SGD" : "US · USD"}
+                {form.market === "SG" ? "SGX · SGD" : "US · USD"}
               </p>
             ) : null}
           </label>
@@ -487,75 +650,102 @@ export default function JournalPage() {
             <span className="text-secondary">Description</span>
             <input
               className="mt-1 w-full"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="DBS, Wee Hur, T-Bill…"
+              value={form.description}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, description: e.target.value }))
+              }
             />
           </label>
         </div>
-        <div className="grid gap-4 sm:grid-cols-4">
+
+        <div className="grid gap-4 sm:grid-cols-3">
           <label className="block text-sm">
             <span className="text-secondary">Quantity</span>
             <input
               className="mt-1 w-full font-mono"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
+              value={form.quantity}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, quantity: e.target.value }))
+              }
               required
             />
           </label>
           <label className="block text-sm">
-            <span className="text-secondary">{entryLabel}</span>
+            <span className="text-secondary">Entry price ({currencyHint})</span>
             <input
               className="mt-1 w-full font-mono"
-              value={entryPrice}
-              onChange={(e) => setEntryPrice(e.target.value)}
+              value={form.entryPrice}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, entryPrice: e.target.value }))
+              }
               required
             />
           </label>
           <label className="block text-sm">
-            <span className="text-secondary">Exit / mark price</span>
+            <span className="text-secondary">Exit price ({currencyHint})</span>
             <input
               className="mt-1 w-full font-mono"
-              value={exitPrice}
-              onChange={(e) => setExitPrice(e.target.value)}
-              placeholder={exitDate ? "Required if closed" : "Optional"}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-secondary">Fees</span>
-            <input
-              className="mt-1 w-full font-mono"
-              value={fees}
-              onChange={(e) => setFees(e.target.value)}
+              value={form.exitPrice}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, exitPrice: e.target.value }))
+              }
             />
           </label>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+
+        <div className="grid gap-4 sm:grid-cols-3">
           <label className="block text-sm">
-            <span className="text-secondary">Dividend / interest income</span>
+            <span className="text-secondary">
+              Buy commission ({currencyHint})
+            </span>
             <input
               className="mt-1 w-full font-mono"
-              value={dividendIncome}
-              onChange={(e) => setDividendIncome(e.target.value)}
+              placeholder="e.g. 2.50"
+              value={form.entryCommission}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, entryCommission: e.target.value }))
+              }
             />
           </label>
           <label className="block text-sm">
-            <span className="text-secondary">Idea source</span>
+            <span className="text-secondary">
+              Sell commission ({currencyHint})
+            </span>
             <input
-              className="mt-1 w-full"
-              value={ideaSource}
-              onChange={(e) => setIdeaSource(e.target.value)}
-              placeholder="PT Alumni, ASSI, personal…"
+              className="mt-1 w-full font-mono"
+              placeholder="When closed"
+              value={form.exitCommission}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, exitCommission: e.target.value }))
+              }
             />
           </label>
+          <label className="block text-sm">
+            <span className="text-secondary">
+              Dividends ({currencyHint}, optional)
+            </span>
+            <input
+              className="mt-1 w-full font-mono"
+              value={form.dividendIncome}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, dividendIncome: e.target.value }))
+              }
+            />
+            <p className="mt-1 text-[10px] text-muted">
+              Or use Update dividends for stocks
+            </p>
+          </label>
         </div>
+
         {brokerageAccounts.length > 0 ? (
           <label className="block text-sm">
             <span className="text-secondary">Brokerage</span>
             <select
               className="mt-1 w-full"
-              value={linkedAccountId}
-              onChange={(e) => setLinkedAccountId(e.target.value)}
+              value={form.linkedAccountId}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, linkedAccountId: e.target.value }))
+              }
             >
               <option value="">—</option>
               {brokerageAccounts.map((a) => (
@@ -566,24 +756,31 @@ export default function JournalPage() {
             </select>
           </label>
         ) : null}
+
         <label className="block text-sm">
-          <span className="text-secondary">Notes</span>
-          <textarea
+          <span className="text-secondary">Idea source / notes</span>
+          <input
             className="mt-1 w-full"
-            rows={2}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            value={form.ideaSource}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, ideaSource: e.target.value }))
+            }
+            placeholder="PT Alumni, ASSI…"
           />
         </label>
+
         <button
           type="submit"
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white"
+          disabled={saving || (form.category === "stocks" && !form.market)}
+          className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-white disabled:opacity-50"
         >
-          Add to journal
+          {saving
+            ? "Saving…"
+            : editingId
+              ? "Save changes"
+              : "Add to journal"}
         </button>
       </form>
-
-      {message ? <p className="text-sm text-secondary">{message}</p> : null}
     </div>
   );
 }

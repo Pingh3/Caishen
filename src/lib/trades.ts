@@ -25,6 +25,11 @@ export function tradeCostNative(trade: Trade): number {
   return trade.quantity * trade.entryPrice;
 }
 
+export function tradeTotalCommission(trade: Trade): number {
+  const entry = trade.entryCommission ?? trade.fees ?? 0;
+  return entry + (trade.exitCommission ?? 0);
+}
+
 export function tradePnlNative(
   trade: Trade,
   markPrice?: number,
@@ -34,10 +39,8 @@ export function tradePnlNative(
   const price = trade.exitPrice ?? markPrice;
   if (price === undefined) return null;
   const proceeds =
-    trade.quantity * price +
-    (trade.dividendIncome ?? 0) -
-    (trade.fees ?? 0);
-  const pnl = proceeds - cost;
+    trade.quantity * price + (trade.dividendIncome ?? 0);
+  const pnl = proceeds - cost - tradeTotalCommission(trade);
   return { pnl, pnlPct: (pnl / cost) * 100, cost };
 }
 

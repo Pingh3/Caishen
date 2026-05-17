@@ -69,8 +69,15 @@ export type Trade = {
   entryPrice: number;
   /** Exit or mark-to-market price per unit when closed / for non-equity */
   exitPrice?: number;
+  /** @deprecated Use entryCommission */
   fees?: number;
+  /** Broker commission on buy (native currency) */
+  entryCommission?: number;
+  /** Broker commission on sell (native currency) */
+  exitCommission?: number;
   dividendIncome?: number;
+  /** Last date dividends were fetched from Yahoo */
+  dividendsAutoUpdated?: string;
   linkedAccountId?: string;
   ideaSource?: string;
   notes?: string;
