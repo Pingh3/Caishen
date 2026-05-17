@@ -15,8 +15,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Net Worth Tracker · Singapore",
-  description: "Track net worth, CPF, and investments in SGD",
+  title: {
+    default: "Caishen",
+    template: "%s · Caishen",
+  },
+  description: "Track net worth, CPF, investments, and trading journal in SGD",
+  applicationName: "Caishen",
 };
 
 export default function RootLayout({

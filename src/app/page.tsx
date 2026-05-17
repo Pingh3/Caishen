@@ -19,6 +19,7 @@ import {
 } from "@/lib/finance";
 import { fetchUsdToSgd } from "@/lib/market";
 import { readFinanceData } from "@/lib/storage";
+import { buildProjections } from "@/lib/projection";
 import { computeJournalStats } from "@/lib/trades";
 import Link from "next/link";
 
@@ -75,6 +76,9 @@ export default async function DashboardPage() {
     new Map(),
     usdToSgd,
   );
+
+  const projections = buildProjections(data, accounts);
+  const returnPct = data.settings?.projectionReturnPct ?? 5;
 
   return (
     <div className="space-y-8">
@@ -176,6 +180,62 @@ export default async function DashboardPage() {
               Start your trading journal
             </Link>{" "}
             to track entries, P&amp;L, and link open trades to Investments.
+          </p>
+        </section>
+      )}
+
+      {projections ? (
+        <section className="rounded-xl border border-surface-border bg-surface-raised p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-medium text-primary">
+                Future projections
+              </h2>
+              <p className="text-xs text-muted">
+                ~{formatCurrency(projections.monthlySavings)}/mo savings ·{" "}
+                {returnPct}% p.a. return · not financial advice
+              </p>
+            </div>
+            <Link
+              href="/settings"
+              className="text-sm text-accent hover:underline"
+            >
+              Edit income →
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {projections.rows.map((row) => (
+              <div
+                key={row.years}
+                className="rounded-lg border border-surface-border bg-surface px-3 py-3"
+              >
+                <p className="text-xs uppercase text-muted">{row.label}</p>
+                <p className="mt-1 font-mono text-lg font-semibold tabular-nums text-primary">
+                  {formatCurrency(row.netWorth)}
+                </p>
+                <p className="text-[10px] text-muted">
+                  +
+                  {formatCurrency(row.netWorth - netWorth)} vs today
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-xl border border-dashed border-surface-border p-5">
+          <h2 className="text-sm font-medium text-primary">
+            Future projections
+          </h2>
+          <p className="mt-2 text-sm text-secondary">
+            Add{" "}
+            <Link href="/settings" className="text-accent hover:underline">
+              gross monthly income
+            </Link>{" "}
+            and{" "}
+            <Link href="/accounts" className="text-accent hover:underline">
+              monthly expenses
+            </Link>{" "}
+            (on Accounts or Update) to see estimated net worth in 1–20 years.
           </p>
         </section>
       )}

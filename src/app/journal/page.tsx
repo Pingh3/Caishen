@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { loadFinanceData, persistFinanceData } from "@/lib/client-finance";
-import { formatCurrency, formatPercent, formatUsd } from "@/lib/finance";
+import {
+  formatCurrency,
+  formatPercent,
+  formatTradePrice,
+} from "@/lib/finance";
 import { normalizeSymbol } from "@/lib/market";
 import {
   TRADE_CATEGORY_LABELS,
@@ -469,8 +473,7 @@ export default function JournalPage() {
                 const mark = isTradeOpen(t) ? q?.price : t.exitPrice;
                 const pnl = tradePnlSgd(t, mark, usdToSgd);
                 const comm = tradeTotalCommission(t);
-                const fmt = (n: number) =>
-                  t.market === "US" ? formatUsd(n) : formatCurrency(n);
+                const fmt = (n: number) => formatTradePrice(n, t.market);
                 return (
                   <tr key={t.id} className="border-t border-surface-border">
                     <td className="px-3 py-2.5 text-xs text-secondary">

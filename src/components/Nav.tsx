@@ -23,7 +23,7 @@ export function Nav() {
           Singapore · SGD
         </p>
         <h1 className="text-xl font-semibold tracking-tight text-primary">
-          Net Worth
+          Caishen
         </h1>
       </div>
       <nav className="flex flex-wrap gap-1 rounded-xl border border-surface-border bg-surface-raised p-1">

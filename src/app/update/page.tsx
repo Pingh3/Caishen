@@ -112,7 +112,15 @@ export default function UpdatePage() {
       <div>
         <h2 className="text-lg font-semibold text-zinc-100">Monthly update</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          One snapshot per date. Balances pre-fill from your last entry.
+          One snapshot per date. For a quick balance update, use{" "}
+          <a href="/accounts" className="text-accent hover:underline">
+            Accounts
+          </a>
+          . Set income in{" "}
+          <a href="/settings" className="text-accent hover:underline">
+            Settings
+          </a>{" "}
+          for dashboard projections.
         </p>
       </div>
 

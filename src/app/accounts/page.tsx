@@ -1,7 +1,15 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { CATEGORY_LABELS, CATEGORY_ORDER, SG_ACCOUNT_PRESETS } from "@/lib/finance";
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { persistFinanceData } from "@/lib/client-finance";
+import {
+  CATEGORY_LABELS,
+  CATEGORY_ORDER,
+  SG_ACCOUNT_PRESETS,
+  latestSnapshot,
+  upsertLatestBalances,
+} from "@/lib/finance";
 import type { Account, AccountCategory, FinanceData } from "@/lib/types";
 
 function newId(): string {
@@ -13,23 +21,85 @@ export default function AccountsPage() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState<AccountCategory>("cash");
   const [notes, setNotes] = useState("");
+  const [balances, setBalances] = useState<Record<string, string>>({});
+  const [monthlyExpenses, setMonthlyExpenses] = useState("");
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const latest = useMemo(
+    () => (data ? latestSnapshot(data) : null),
+    [data],
+  );
 
   useEffect(() => {
     fetch("/api/finance")
       .then((r) => r.json())
-      .then(setData);
+      .then((json: FinanceData) => {
+        setData(json);
+        const active = json.accounts.filter((a) => !a.archived);
+        const snap = latestSnapshot(json);
+        const initial: Record<string, string> = {};
+        for (const a of active) {
+          const prev = snap?.balances[a.id];
+          initial[a.id] = prev !== undefined ? String(prev) : "";
+        }
+        setBalances(initial);
+        setMonthlyExpenses(
+          snap?.monthlyExpenses !== undefined
+            ? String(snap.monthlyExpenses)
+            : "",
+        );
+      });
   }, []);
 
-  async function save(next: FinanceData) {
+  async function save(next: FinanceData, successMsg?: string) {
     setSaving(true);
-    await fetch("/api/finance", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    });
-    setData(next);
+    setMessage("");
+    const result = await persistFinanceData(next);
     setSaving(false);
+    if (!result.ok) {
+      setMessage(result.error);
+      return false;
+    }
+    setData(result.data);
+    if (successMsg) setMessage(successMsg);
+    return true;
+  }
+
+  async function onSaveBalances(e: FormEvent) {
+    e.preventDefault();
+    if (!data) return;
+
+    const parsed: Record<string, number> = {};
+    for (const a of data.accounts.filter((x) => !x.archived)) {
+      const raw = balances[a.id]?.trim();
+      if (!raw) continue;
+      const n = Number(raw.replace(/,/g, ""));
+      if (Number.isNaN(n)) {
+        setMessage(`Invalid amount for ${a.name}`);
+        return;
+      }
+      parsed[a.id] = n;
+    }
+
+    let next = upsertLatestBalances(data, parsed);
+    const snap = latestSnapshot(next);
+    if (snap) {
+      const expenses = monthlyExpenses.trim()
+        ? Number(monthlyExpenses.replace(/,/g, ""))
+        : undefined;
+      const snapshots = next.snapshots.map((s) =>
+        s.id === snap.id
+          ? { ...s, monthlyExpenses: expenses }
+          : s,
+      );
+      next = { ...next, snapshots };
+    }
+
+    await save(
+      next,
+      `Balances saved to snapshot ${latestSnapshot(next)?.date ?? "today"}.`,
+    );
   }
 
   async function onAdd(e: FormEvent) {
@@ -42,10 +112,16 @@ export default function AccountsPage() {
       notes: notes.trim() || undefined,
       isLiability: category === "liability",
     };
-    await save({ ...data, accounts: [...data.accounts, account] });
-    setName("");
-    setNotes("");
-    setCategory("cash");
+    const ok = await save(
+      { ...data, accounts: [...data.accounts, account] },
+      `Added ${account.name}. Enter a balance below.`,
+    );
+    if (ok) {
+      setBalances((b) => ({ ...b, [account.id]: "" }));
+      setName("");
+      setNotes("");
+      setCategory("cash");
+    }
   }
 
   async function archive(id: string) {
@@ -60,15 +136,113 @@ export default function AccountsPage() {
 
   const active = data.accounts.filter((a) => !a.archived);
   const archived = data.accounts.filter((a) => a.archived);
+  const byCategory = active.reduce(
+    (acc, a) => {
+      (acc[a.category] ??= []).push(a);
+      return acc;
+    },
+    {} as Record<string, Account[]>,
+  );
 
   return (
     <div className="mx-auto max-w-xl space-y-8">
       <div>
         <h2 className="text-lg font-semibold text-zinc-100">Accounts</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Define accounts once. Each monthly snapshot only updates balances.
+          Enter balances for DBS, Endowus, CPF, etc. Saves to your latest snapshot.
+          Income for projections is in{" "}
+          <Link href="/settings" className="text-accent hover:underline">
+            Settings
+          </Link>
+          .
         </p>
       </div>
+
+      <form
+        onSubmit={onSaveBalances}
+        className="space-y-4 rounded-xl border border-accent/30 bg-accent/5 p-4"
+      >
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-sm font-medium text-primary">Current balances</h3>
+          {latest ? (
+            <span className="text-xs text-muted">Snapshot: {latest.date}</span>
+          ) : (
+            <span className="text-xs text-muted">Creates first snapshot</span>
+          )}
+        </div>
+
+        {active.length === 0 ? (
+          <p className="text-sm text-secondary">
+            Add accounts below, then enter amounts.
+          </p>
+        ) : (
+          Object.entries(byCategory).map(([cat, list]) => (
+            <fieldset key={cat} className="space-y-2">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-muted">
+                {CATEGORY_LABELS[cat as AccountCategory]}
+              </legend>
+              {list.map((a) => (
+                <label
+                  key={a.id}
+                  className="flex items-center justify-between gap-4 text-sm"
+                >
+                  <span className="text-zinc-300">
+                    {a.name}
+                    {a.isLiability ? (
+                      <span className="ml-1 text-xs text-muted">(owed)</span>
+                    ) : null}
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className="w-36 font-mono text-right"
+                    placeholder="0"
+                    value={balances[a.id] ?? ""}
+                    onChange={(e) =>
+                      setBalances((b) => ({ ...b, [a.id]: e.target.value }))
+                    }
+                  />
+                </label>
+              ))}
+            </fieldset>
+          ))
+        )}
+
+        <label className="block text-sm">
+          <span className="text-zinc-400">Monthly expenses (SGD)</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            className="mt-1 w-full font-mono"
+            placeholder="4300"
+            value={monthlyExpenses}
+            onChange={(e) => setMonthlyExpenses(e.target.value)}
+          />
+          <span className="mt-0.5 block text-xs text-muted">
+            Used with income in Settings for savings &amp; projections
+          </span>
+        </label>
+
+        <button
+          type="submit"
+          disabled={saving || active.length === 0}
+          className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save balances"}
+        </button>
+      </form>
+
+      {message ? (
+        <p
+          className={`text-sm ${
+            message.includes("failed") || message.includes("Blob")
+              ? "text-negative"
+              : "text-positive"
+          }`}
+        >
+          {message}
+        </p>
+      ) : null}
 
       <ul className="divide-y divide-surface-border rounded-xl border border-surface-border bg-surface-raised">
         {active.map((a) => (
@@ -97,7 +271,7 @@ export default function AccountsPage() {
 
       {archived.length > 0 ? (
         <p className="text-xs text-zinc-600">
-          {archived.length} archived account(s) hidden from updates.
+          {archived.length} archived account(s) hidden.
         </p>
       ) : null}
 
@@ -111,6 +285,14 @@ export default function AccountsPage() {
               disabled={saving}
               onClick={async () => {
                 if (!data) return;
+                if (
+                  data.accounts.some(
+                    (a) => !a.archived && a.name === preset.name,
+                  )
+                ) {
+                  setMessage(`${preset.name} already exists.`);
+                  return;
+                }
                 const account: Account = {
                   id: `acct-${Date.now().toString(36)}`,
                   name: preset.name,
@@ -118,7 +300,12 @@ export default function AccountsPage() {
                   notes: preset.notes,
                   isLiability: preset.isLiability,
                 };
-                await save({ ...data, accounts: [...data.accounts, account] });
+                const ok = await save(
+                  { ...data, accounts: [...data.accounts, account] },
+                );
+                if (ok) {
+                  setBalances((b) => ({ ...b, [account.id]: "" }));
+                }
               }}
               className="rounded-full border border-surface-border px-3 py-1 text-xs text-secondary hover:border-accent hover:text-accent"
             >

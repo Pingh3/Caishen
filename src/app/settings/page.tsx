@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { persistFinanceData } from "@/lib/client-finance";
 import { CATEGORY_LABELS } from "@/lib/finance";
 import type { AccountCategory, FinanceData } from "@/lib/types";
 
@@ -14,9 +16,12 @@ export default function SettingsPage() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [birthYear, setBirthYear] = useState("");
   const [emergencyMonths, setEmergencyMonths] = useState("6");
+  const [monthlyIncome, setMonthlyIncome] = useState("");
+  const [annualBonus, setAnnualBonus] = useState("");
+  const [projectionReturnPct, setProjectionReturnPct] = useState("5");
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     fetch("/api/finance")
@@ -26,6 +31,11 @@ export default function SettingsPage() {
         setBirthYear(json.settings?.birthYear?.toString() ?? "");
         setEmergencyMonths(
           String(json.settings?.emergencyFundMonths ?? 6),
+        );
+        setMonthlyIncome(json.settings?.monthlyIncome?.toString() ?? "");
+        setAnnualBonus(json.settings?.annualBonus?.toString() ?? "");
+        setProjectionReturnPct(
+          String(json.settings?.projectionReturnPct ?? 5),
         );
         const t: Record<string, string> = {};
         for (const c of TARGET_CATEGORIES) {
@@ -40,7 +50,7 @@ export default function SettingsPage() {
     e.preventDefault();
     if (!data) return;
     setSaving(true);
-    setSaved(false);
+    setMessage("");
 
     const allocationTargets: FinanceData["allocationTargets"] = {};
     for (const c of TARGET_CATEGORIES) {
@@ -53,6 +63,15 @@ export default function SettingsPage() {
       settings: {
         birthYear: birthYear ? Number(birthYear) : undefined,
         emergencyFundMonths: Number(emergencyMonths) || 6,
+        monthlyIncome: monthlyIncome
+          ? Number(monthlyIncome.replace(/,/g, ""))
+          : undefined,
+        annualBonus: annualBonus
+          ? Number(annualBonus.replace(/,/g, ""))
+          : undefined,
+        projectionReturnPct: projectionReturnPct
+          ? Number(projectionReturnPct)
+          : 5,
       },
       allocationTargets:
         Object.keys(allocationTargets).length > 0
@@ -60,15 +79,14 @@ export default function SettingsPage() {
           : undefined,
     };
 
-    await fetch("/api/finance", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    });
-
-    setData(next);
+    const result = await persistFinanceData(next);
     setSaving(false);
-    setSaved(true);
+    if (!result.ok) {
+      setMessage(result.error);
+      return;
+    }
+    setData(result.data);
+    setMessage("Saved. Check the dashboard for projections.");
   }
 
   if (!data) return <p className="text-sm text-zinc-500">Loading…</p>;
@@ -78,11 +96,72 @@ export default function SettingsPage() {
       <div>
         <h2 className="text-lg font-semibold text-zinc-100">Settings</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Personalize insights and allocation targets.
+          Income and expenses power{" "}
+          <Link href="/" className="text-accent hover:underline">
+            future projections
+          </Link>{" "}
+          on the dashboard. Account balances are on{" "}
+          <Link href="/accounts" className="text-accent hover:underline">
+            Accounts
+          </Link>{" "}
+          or{" "}
+          <Link href="/update" className="text-accent hover:underline">
+            Update
+          </Link>
+          .
         </p>
       </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
+        <fieldset className="rounded-xl border border-surface-border bg-surface-raised p-4">
+          <legend className="px-1 text-sm font-medium text-zinc-300">
+            Income &amp; projections
+          </legend>
+          <p className="mt-1 text-xs text-zinc-500">
+            Gross figures in SGD. Monthly expenses come from your latest snapshot
+            (Update or Accounts).
+          </p>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm sm:col-span-2">
+              <span className="text-zinc-400">Gross monthly income</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="mt-1 w-full font-mono"
+                placeholder="12000"
+                value={monthlyIncome}
+                onChange={(e) => setMonthlyIncome(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-zinc-400">Annual bonus (optional)</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="mt-1 w-full font-mono"
+                placeholder="24000"
+                value={annualBonus}
+                onChange={(e) => setAnnualBonus(e.target.value)}
+              />
+              <span className="mt-0.5 block text-xs text-muted">
+                Spread evenly across 12 months in projections
+              </span>
+            </label>
+            <label className="block text-sm">
+              <span className="text-zinc-400">Expected return % / year</span>
+              <input
+                type="number"
+                step="0.5"
+                min={0}
+                max={30}
+                className="mt-1 w-full font-mono"
+                value={projectionReturnPct}
+                onChange={(e) => setProjectionReturnPct(e.target.value)}
+              />
+            </label>
+          </div>
+        </fieldset>
+
         <fieldset className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <legend className="px-1 text-sm font-medium text-zinc-300">
             Profile
@@ -146,8 +225,16 @@ export default function SettingsPage() {
         >
           {saving ? "Saving…" : "Save settings"}
         </button>
-        {saved ? (
-          <p className="text-sm text-positive">Saved.</p>
+        {message ? (
+          <p
+            className={`text-sm ${
+              message.includes("failed") || message.includes("Blob")
+                ? "text-negative"
+                : "text-positive"
+            }`}
+          >
+            {message}
+          </p>
         ) : null}
       </form>
     </div>

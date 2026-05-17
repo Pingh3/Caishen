@@ -61,8 +61,27 @@ export function formatUsd(n: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n);
+}
+
+/** Per-unit trade prices in listing currency (always 2 dp). */
+export function formatTradePrice(
+  n: number,
+  market: "US" | "SG",
+): string {
+  const opts = {
+    style: "currency" as const,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  };
+  if (market === "US") {
+    return new Intl.NumberFormat("en-US", { ...opts, currency: "USD" }).format(
+      n,
+    );
+  }
+  return new Intl.NumberFormat("en-SG", { ...opts, currency: "SGD" }).format(n);
 }
 
 export function formatPercent(n: number, signed = false): string {
@@ -129,6 +148,38 @@ export function sortSnapshots(snapshots: Snapshot[]): Snapshot[] {
 export function latestSnapshot(data: FinanceData): Snapshot | null {
   const sorted = sortSnapshots(data.snapshots);
   return sorted.at(-1) ?? null;
+}
+
+/** Merge balances into the latest snapshot, or create one for today. */
+export function upsertLatestBalances(
+  data: FinanceData,
+  balances: Record<string, number>,
+): FinanceData {
+  const today = new Date().toISOString().slice(0, 10);
+  const latest = latestSnapshot(data);
+  const targetDate = latest?.date ?? today;
+  const targetId = latest?.id ?? targetDate;
+
+  const mergedBalances = { ...(latest?.balances ?? {}) };
+  for (const [id, val] of Object.entries(balances)) {
+    if (!Number.isNaN(val)) mergedBalances[id] = val;
+  }
+
+  const snapshot: Snapshot = {
+    id: targetId,
+    date: targetDate,
+    balances: mergedBalances,
+    monthlyExpenses: latest?.monthlyExpenses,
+    notes: latest?.notes,
+  };
+
+  const others = data.snapshots.filter((s) => s.id !== targetId);
+  return {
+    ...data,
+    snapshots: [...others, snapshot].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    ),
+  };
 }
 
 export function previousSnapshot(
@@ -230,8 +281,28 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "add-expenses",
       severity: "info",
       title: "Add monthly expenses",
-      body: "Enter your typical monthly spending on the latest snapshot to unlock emergency-fund and cash-target insights.",
+      body: "Enter typical monthly spending on Update (or Accounts) to unlock emergency-fund and projection insights.",
     });
+  }
+
+  const monthlyIncome = data.settings?.monthlyIncome;
+  if (!monthlyIncome || monthlyIncome <= 0) {
+    insights.push({
+      id: "add-income",
+      severity: "info",
+      title: "Add income for projections",
+      body: "Set gross monthly income in Settings to see estimated savings and future net worth on the dashboard.",
+    });
+  } else if (monthlyExpenses && monthlyExpenses > 0) {
+    const savings = monthlyIncome + (data.settings?.annualBonus ?? 0) / 12 - monthlyExpenses;
+    if (savings > 0) {
+      insights.push({
+        id: "savings-rate",
+        severity: "info",
+        title: "Estimated monthly savings",
+        body: `About ${formatCurrency(savings)}/month after expenses (${formatPercent((savings / monthlyIncome) * 100)} of gross income). Projections on the dashboard assume you invest this surplus.`,
+      });
+    }
   }
 
   if (liabilities > 0 && liabilities > cashPositive * 0.5) {
