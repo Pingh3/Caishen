@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { formatCurrency, formatPercent, formatUsd } from "@/lib/finance";
+import {
+  formatCurrency,
+  formatPercent,
+  formatTradePrice,
+} from "@/lib/finance";
 import { holdingPnl, holdingValueSgd, normalizeSymbol } from "@/lib/market";
 import type { FinanceData, Holding, QuoteResult, StockMarket } from "@/lib/types";
 
@@ -362,22 +366,20 @@ export default function InvestmentsPage() {
                       {h.quantity}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
-                      {h.market === "US"
-                        ? formatUsd(h.avgEntryPrice)
-                        : formatCurrency(h.avgEntryPrice)}
+                      {formatTradePrice(h.avgEntryPrice, h.market)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
                       {q ? (
                         h.market === "US" ? (
                           <>
-                            {formatUsd(q.price)}
+                            {formatTradePrice(q.price, "US")}
                             <br />
                             <span className="text-muted">
-                              {formatCurrency(q.priceSgd)}
+                              {formatTradePrice(q.priceSgd, "SG")}
                             </span>
                           </>
                         ) : (
-                          formatCurrency(q.price)
+                          formatTradePrice(q.price, h.market)
                         )
                       ) : (
                         "—"
