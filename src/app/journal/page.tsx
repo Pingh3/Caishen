@@ -185,7 +185,11 @@ export default function JournalPage() {
   }
 
   async function detectSymbol(raw: string) {
-    if (form.category !== "stocks" || !raw.trim()) return;
+    if (!raw.trim()) return;
+    if (form.category !== "stocks") {
+      setForm((f) => ({ ...f, symbol: raw.trim().toUpperCase() }));
+      return;
+    }
     setDetecting(true);
     try {
       const res = await fetch(
@@ -193,10 +197,16 @@ export default function JournalPage() {
       );
       const json = await res.json();
       if (res.ok) {
+        const sym = normalizeSymbol(raw);
+        const name = (json.quote?.name as string | undefined)?.trim();
         setForm((f) => ({
           ...f,
           market: json.market,
-          symbol: normalizeSymbol(raw),
+          symbol: sym,
+          description:
+            name && (!f.description.trim() || f.description.trim() === sym)
+              ? name
+              : f.description,
         }));
         setUsdToSgd(json.usdToSgd ?? usdToSgd);
       } else {
@@ -245,10 +255,24 @@ export default function JournalPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!data) return;
-    const built = buildTradeFromForm(editingId ?? newId());
+    let built = buildTradeFromForm(editingId ?? newId());
     if (typeof built === "string") {
       setMsg(built, "err");
       return;
+    }
+
+    if (built.category === "stocks" && !built.description?.trim()) {
+      try {
+        const res = await fetch(
+          `/api/market/detect?symbol=${encodeURIComponent(built.symbol)}`,
+        );
+        const json = await res.json();
+        if (res.ok && json.quote?.name) {
+          built = { ...built, description: String(json.quote.name).trim() };
+        }
+      } catch {
+        /* save without description */
+      }
     }
 
     const nextTrades = editingId
@@ -347,6 +371,33 @@ export default function JournalPage() {
     reader.readAsText(file);
   }
 
+  async function fillDescriptions() {
+    if (!data || trades.length === 0) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/journal/enrich-descriptions", {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setMsg(json.error ?? "Could not fill descriptions", "err");
+        return;
+      }
+      const refreshed = await loadFinanceData();
+      setData(refreshed);
+      await refreshQuotes(refreshed.trades ?? []);
+      setMsg(
+        json.updated > 0
+          ? `Updated ${json.updated} description(s) from Yahoo Finance.`
+          : "All stock trades already have descriptions.",
+      );
+    } catch {
+      setMsg("Could not fill descriptions.", "err");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function refreshDividends() {
     if (!data || trades.length === 0) return;
     setSaving(true);
@@ -397,6 +448,14 @@ export default function JournalPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={fillDescriptions}
+            className="rounded-lg border border-surface-border px-3 py-2 text-sm text-secondary hover:text-primary disabled:opacity-50"
+          >
+            Fill descriptions
+          </button>
           <button
             type="button"
             disabled={saving}
@@ -618,8 +677,10 @@ export default function JournalPage() {
                       <span className="ml-1 text-[10px] text-muted">
                         {t.market}
                       </span>
-                      {t.description ? (
-                        <p className="text-xs text-muted">{t.description}</p>
+                      {t.description || q?.name ? (
+                        <p className="text-xs text-muted">
+                          {t.description ?? q?.name}
+                        </p>
                       ) : null}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono tabular-nums">
@@ -775,9 +836,12 @@ export default function JournalPage() {
             ) : null}
           </label>
           <label className="block text-sm">
-            <span className="text-secondary">Description</span>
+            <span className="text-secondary">
+              Company name (auto from ticker)
+            </span>
             <input
               className="mt-1 w-full"
+              placeholder="Filled when you tab out of symbol"
               value={form.description}
               onChange={(e) =>
                 setForm((f) => ({ ...f, description: e.target.value }))

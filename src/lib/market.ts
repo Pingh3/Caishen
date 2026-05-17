@@ -1,4 +1,4 @@
-import type { Holding, QuoteResult, StockMarket } from "./types";
+import type { Holding, QuoteResult, StockMarket, Trade } from "./types";
 
 function yahooSymbol(symbol: string, market: StockMarket): string {
   const s = normalizeSymbol(symbol);
@@ -114,6 +114,34 @@ export async function detectMarket(
   if (sgQuote) return { market: "SG", quote: sgQuote };
   if (usQuote) return { market: "US", quote: usQuote };
   return null;
+}
+
+function needsDescription(trade: Trade): boolean {
+  const d = trade.description?.trim();
+  if (!d) return true;
+  return d.toUpperCase() === trade.symbol.toUpperCase();
+}
+
+/** Fill missing trade descriptions from Yahoo Finance shortName. */
+export async function enrichTradeDescriptions(trades: Trade[]): Promise<Trade[]> {
+  const usdToSgd = await fetchUsdToSgd();
+  const nameCache = new Map<string, string | null>();
+  const next = [...trades];
+
+  for (let i = 0; i < next.length; i++) {
+    const t = next[i];
+    if (t.category !== "stocks" || !needsDescription(t)) continue;
+
+    const key = `${t.market}:${normalizeSymbol(t.symbol)}`;
+    if (!nameCache.has(key)) {
+      const quote = await fetchQuote(t.symbol, t.market, usdToSgd);
+      nameCache.set(key, quote?.name?.trim() ?? null);
+    }
+    const name = nameCache.get(key);
+    if (name) next[i] = { ...t, description: name };
+  }
+
+  return next;
 }
 
 export async function fetchQuotesForHoldings(

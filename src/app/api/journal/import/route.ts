@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enrichTradeDescriptions } from "@/lib/market";
 import { mergeImportedTrades, parseJournalCsv } from "@/lib/trade-import";
 import { readFinanceData, writeFinanceData } from "@/lib/storage";
 
@@ -24,15 +25,18 @@ export async function POST(request: Request) {
       );
     }
 
+    const enriched = await enrichTradeDescriptions(parsed.trades);
+
     const data = await readFinanceData();
     const existing = data.trades ?? [];
     const { trades, added, duplicates } = mergeImportedTrades(
       existing,
-      parsed.trades,
+      enriched,
       mode,
     );
 
-    await writeFinanceData({ ...data, trades });
+    const withNames = await enrichTradeDescriptions(trades);
+    await writeFinanceData({ ...data, trades: withNames });
 
     return NextResponse.json({
       added,
