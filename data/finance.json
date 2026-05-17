@@ -13,6 +13,70 @@
     { "id": "cc", "name": "Credit cards", "category": "liability", "isLiability": true }
   ],
   "holdings": [],
+  "trades": [
+    {
+      "id": "t-e3b-open",
+      "entryDate": "2026-04-02",
+      "market": "SG",
+      "category": "stocks",
+      "symbol": "E3B",
+      "description": "Wee Hur",
+      "quantity": 7300,
+      "entryPrice": 0.65,
+      "linkedAccountId": "moomoo",
+      "ideaSource": "PT Alumni"
+    },
+    {
+      "id": "t-dbs-open",
+      "entryDate": "2026-03-05",
+      "market": "SG",
+      "category": "stocks",
+      "symbol": "DBS",
+      "description": "DBS",
+      "quantity": 300,
+      "entryPrice": 55.2,
+      "linkedAccountId": "moomoo"
+    },
+    {
+      "id": "t-nvda-closed",
+      "entryDate": "2025-04-16",
+      "exitDate": "2025-06-23",
+      "market": "US",
+      "category": "stocks",
+      "symbol": "NVDA",
+      "description": "Nvidia",
+      "quantity": 20,
+      "entryPrice": 103.7,
+      "exitPrice": 143.81,
+      "fees": 0.14,
+      "linkedAccountId": "moomoo",
+      "ideaSource": "PT Alumni"
+    },
+    {
+      "id": "t-nflx-open",
+      "entryDate": "2025-10-23",
+      "market": "US",
+      "category": "stocks",
+      "symbol": "NFLX",
+      "description": "Netflix",
+      "quantity": 70,
+      "entryPrice": 110.33,
+      "linkedAccountId": "moomoo"
+    },
+    {
+      "id": "t-tbill",
+      "entryDate": "2023-08-29",
+      "exitDate": "2024-03-05",
+      "market": "SG",
+      "category": "govt",
+      "symbol": "BS23117Z",
+      "description": "SG 6-month T-Bills",
+      "quantity": 100,
+      "entryPrice": 98.16,
+      "exitPrice": 100,
+      "dividendIncome": 184.5
+    }
+  ],
   "snapshots": [
     {
       "id": "2026-03-31",

@@ -54,10 +54,33 @@ export type PropertyProfile = {
   manualValue?: number;
 };
 
+export type TradeCategory = "stocks" | "govt" | "robo" | "other";
+
+export type Trade = {
+  id: string;
+  entryDate: string;
+  exitDate?: string;
+  market: StockMarket;
+  category: TradeCategory;
+  symbol: string;
+  description?: string;
+  quantity: number;
+  /** Per-unit price in listing currency (USD or SGD) */
+  entryPrice: number;
+  /** Exit or mark-to-market price per unit when closed / for non-equity */
+  exitPrice?: number;
+  fees?: number;
+  dividendIncome?: number;
+  linkedAccountId?: string;
+  ideaSource?: string;
+  notes?: string;
+};
+
 export type FinanceData = {
   accounts: Account[];
   snapshots: Snapshot[];
   holdings?: Holding[];
+  trades?: Trade[];
   property?: PropertyProfile;
   allocationTargets?: Partial<Record<AccountCategory, number>>;
   settings?: {

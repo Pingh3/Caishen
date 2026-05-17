@@ -17,7 +17,10 @@ import {
   snapshotNetWorth,
   sortSnapshots,
 } from "@/lib/finance";
+import { fetchUsdToSgd } from "@/lib/market";
 import { readFinanceData } from "@/lib/storage";
+import { computeJournalStats } from "@/lib/trades";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +69,13 @@ export default async function DashboardPage() {
   const momTone =
     delta > 0 ? "positive" : delta < 0 ? "negative" : ("default" as const);
 
+  const usdToSgd = await fetchUsdToSgd();
+  const journalStats = computeJournalStats(
+    data.trades ?? [],
+    new Map(),
+    usdToSgd,
+  );
+
   return (
     <div className="space-y-8">
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -113,6 +123,62 @@ export default async function DashboardPage() {
           tone={totals.liability < 0 ? "negative" : "default"}
         />
       </section>
+
+      {(data.trades?.length ?? 0) > 0 ? (
+        <section className="rounded-xl border border-surface-border bg-surface-raised p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-medium text-primary">Trading journal</h2>
+              <p className="text-xs text-muted">
+                {journalStats.openCount} open · {journalStats.closedCount} closed
+              </p>
+            </div>
+            <Link
+              href="/journal"
+              className="text-sm text-accent hover:underline"
+            >
+              View journal →
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs text-muted">Realised P&amp;L</p>
+              <p
+                className={`font-mono text-lg font-semibold tabular-nums ${
+                  journalStats.realizedPnlSgd >= 0
+                    ? "text-positive"
+                    : "text-negative"
+                }`}
+              >
+                {formatCurrency(journalStats.realizedPnlSgd)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted">Open positions</p>
+              <p className="font-mono text-lg font-semibold text-primary">
+                {formatCurrency(journalStats.openCostSgd)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted">Win rate (closed)</p>
+              <p className="font-mono text-lg font-semibold text-primary">
+                {journalStats.winRate !== null
+                  ? formatPercent(journalStats.winRate)
+                  : "—"}
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-xl border border-dashed border-surface-border p-5 text-center">
+          <p className="text-sm text-secondary">
+            <Link href="/journal" className="text-accent hover:underline">
+              Start your trading journal
+            </Link>{" "}
+            to track entries, P&amp;L, and link open trades to Investments.
+          </p>
+        </section>
+      )}
 
       <section className="grid gap-6 lg:grid-cols-5">
         <div className="rounded-xl border border-surface-border bg-surface-raised p-5 lg:col-span-3">

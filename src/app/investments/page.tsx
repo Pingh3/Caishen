@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { formatCurrency, formatPercent, formatUsd } from "@/lib/finance";
 import { holdingPnl, holdingValueSgd, normalizeSymbol } from "@/lib/market";
@@ -236,7 +237,11 @@ export default function InvestmentsPage() {
           <h2 className="text-lg font-semibold text-primary">Live investments</h2>
           <p className="text-sm text-secondary">
             Ticker auto-detects SGX vs US. P&amp;L in SGD at {usdToSgd.toFixed(4)}{" "}
-            USD/SGD.
+            USD/SGD. Log trades in{" "}
+            <Link href="/journal" className="text-accent hover:underline">
+              Journal
+            </Link>{" "}
+            first, then sync open positions here.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
