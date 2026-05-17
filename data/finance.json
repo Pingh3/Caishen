@@ -1,0 +1,58 @@
+{
+  "accounts": [
+    { "id": "dbs", "name": "DBS Multiplier", "category": "cash" },
+    { "id": "savings", "name": "Savings / FD", "category": "cash" },
+    { "id": "cpf-oa", "name": "CPF Ordinary Account (OA)", "category": "retirement" },
+    { "id": "cpf-sa", "name": "CPF Special Account (SA)", "category": "retirement" },
+    { "id": "srs", "name": "SRS", "category": "retirement" },
+    { "id": "brokerage", "name": "Brokerage (IBKR / FSM)", "category": "investments" },
+    { "id": "property", "name": "Property equity", "category": "property", "notes": "From Property tab estimate" },
+    { "id": "mortgage", "name": "HDB / Bank loan", "category": "liability", "isLiability": true },
+    { "id": "cc", "name": "Credit cards", "category": "liability", "isLiability": true }
+  ],
+  "holdings": [],
+  "snapshots": [
+    {
+      "id": "2025-12-31",
+      "date": "2025-12-31",
+      "monthlyExpenses": 4200,
+      "balances": {
+        "dbs": 8500,
+        "savings": 25000,
+        "cpf-oa": 62000,
+        "cpf-sa": 48000,
+        "srs": 12000,
+        "brokerage": 0,
+        "property": 180000,
+        "mortgage": 320000,
+        "cc": 1200
+      }
+    },
+    {
+      "id": "2026-03-31",
+      "date": "2026-03-31",
+      "monthlyExpenses": 4300,
+      "balances": {
+        "dbs": 11200,
+        "savings": 28000,
+        "cpf-oa": 64500,
+        "cpf-sa": 51200,
+        "srs": 13500,
+        "brokerage": 0,
+        "property": 185000,
+        "mortgage": 315000,
+        "cc": 800
+      }
+    }
+  ],
+  "allocationTargets": {
+    "cash": 15,
+    "investments": 20,
+    "retirement": 50
+  },
+  "settings": {
+    "birthYear": 1988,
+    "emergencyFundMonths": 6,
+    "timezone": "Asia/Singapore"
+  }
+}
