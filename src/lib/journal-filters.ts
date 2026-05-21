@@ -6,6 +6,7 @@ export type JournalFilter =
   | "open"
   | "closed"
   | "stocks"
+  | "robo"
   | "market_funds"
   | "us"
   | "sg"
@@ -17,6 +18,7 @@ export const JOURNAL_FILTER_OPTIONS: { key: JournalFilter; label: string }[] = [
   { key: "open", label: "Open" },
   { key: "closed", label: "Closed" },
   { key: "stocks", label: "Stocks" },
+  { key: "robo", label: "Robo" },
   { key: "market_funds", label: "Market Funds" },
   { key: "us", label: "US" },
   { key: "sg", label: "SG" },
@@ -35,8 +37,10 @@ export function matchesJournalFilter(
       return !isTradeOpen(trade);
     case "stocks":
       return trade.category === "stocks";
-    case "market_funds":
+    case "robo":
       return trade.category === "robo";
+    case "market_funds":
+      return trade.category === "other";
     case "us":
       return trade.category === "stocks" && trade.market === "US";
     case "sg":
@@ -44,7 +48,7 @@ export function matchesJournalFilter(
     case "hk":
       return trade.category === "stocks" && trade.market === "HK";
     case "others":
-      return trade.category === "govt" || trade.category === "other";
+      return trade.category === "govt";
     default:
       return true;
   }
