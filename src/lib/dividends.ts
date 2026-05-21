@@ -1,6 +1,21 @@
 import type { StockMarket, Trade } from "./types";
 import { normalizeSymbol } from "./market";
 
+/** Default US dividend withholding for non-US tax residents (e.g. via broker). */
+export const US_DIVIDEND_WHT_RATE = 0.3;
+
+/** Convert gross dividend (Yahoo) to net amount stored on trades. SG/other: unchanged. */
+export function netDividendFromGross(
+  market: StockMarket,
+  grossNative: number,
+): number {
+  const net =
+    market === "US"
+      ? grossNative * (1 - US_DIVIDEND_WHT_RATE)
+      : grossNative;
+  return Math.round(net * 100) / 100;
+}
+
 type YahooDivEvent = {
   chart?: {
     result?: {
@@ -74,7 +89,7 @@ export async function applyDividendsToTrades(
 
     next[i] = {
       ...t,
-      dividendIncome: Math.round(result.totalNative * 100) / 100,
+      dividendIncome: netDividendFromGross(t.market, result.totalNative),
       dividendsAutoUpdated: new Date().toISOString().slice(0, 10),
     };
     updated += 1;

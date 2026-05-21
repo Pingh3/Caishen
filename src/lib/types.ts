@@ -97,6 +97,7 @@ export type Trade = {
   entryCommission?: number;
   /** Broker commission on sell (native currency) */
   exitCommission?: number;
+  /** Net cash received; US stocks are after 30% WHT when auto-fetched. */
   dividendIncome?: number;
   /** Last date dividends were fetched from Yahoo */
   dividendsAutoUpdated?: string;

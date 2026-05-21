@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { BrokerageQuickAdd } from "@/components/BrokerageQuickAdd";
+import { listBrokerageAccounts } from "@/lib/brokerages";
 import { loadFinanceData, persistFinanceData } from "@/lib/client-finance";
 import {
   formatCurrency,
@@ -412,7 +414,7 @@ export default function JournalPage() {
       setData(refreshed);
       await refreshQuotes(refreshed.trades ?? []);
       setMsg(
-        `Updated dividends for ${json.updated ?? 0} stock trade(s) from Yahoo Finance.`,
+        `Updated dividends for ${json.updated ?? 0} stock trade(s) (US: net after 30% WHT).`,
       );
     } catch {
       setMsg("Dividend update failed.", "err");
@@ -421,10 +423,9 @@ export default function JournalPage() {
     }
   }
 
-  const brokerageAccounts =
-    data?.accounts.filter(
-      (a) => !a.archived && a.category === "investments",
-    ) ?? [];
+  const brokerageAccounts = data
+    ? listBrokerageAccounts(data.accounts)
+    : [];
 
   const currencyHint =
     form.market === "US" ? "USD" : form.market === "SG" ? "SGD" : "native";
@@ -918,35 +919,57 @@ export default function JournalPage() {
             </span>
             <input
               className="mt-1 w-full font-mono"
+              placeholder={
+                form.market === "US" ? "Net after 30% WHT" : undefined
+              }
               value={form.dividendIncome}
               onChange={(e) =>
                 setForm((f) => ({ ...f, dividendIncome: e.target.value }))
               }
             />
             <p className="mt-1 text-[10px] text-muted">
-              Or use Update dividends for stocks
+              {form.market === "US"
+                ? "Enter net received. Update dividends applies 30% US WHT from Yahoo gross."
+                : "Or use Update dividends for stocks"}
             </p>
           </label>
         </div>
 
-        {brokerageAccounts.length > 0 ? (
-          <label className="block text-sm">
-            <span className="text-secondary">Brokerage</span>
-            <select
-              className="mt-1 w-full"
-              value={form.linkedAccountId}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, linkedAccountId: e.target.value }))
+        <label className="block text-sm">
+          <span className="text-secondary">Brokerage</span>
+          <select
+            className="mt-1 w-full"
+            value={form.linkedAccountId}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, linkedAccountId: e.target.value }))
+            }
+          >
+            <option value="">—</option>
+            {brokerageAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {data && form.category === "stocks" ? (
+          <BrokerageQuickAdd
+            data={data}
+            onSave={async (next) => {
+              const result = await persistFinanceData(next);
+              if (!result.ok) {
+                setMsg(result.error, "err");
+                return false;
               }
-            >
-              <option value="">—</option>
-              {brokerageAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              setData(result.data);
+              return true;
+            }}
+            onAdded={(a) =>
+              setForm((f) => ({ ...f, linkedAccountId: a.id }))
+            }
+            showAccountsLink={false}
+            compact
+          />
         ) : null}
 
         <label className="block text-sm">

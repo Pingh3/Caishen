@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { BrokerageQuickAdd } from "@/components/BrokerageQuickAdd";
 import { persistFinanceData } from "@/lib/client-finance";
+import { listBrokerageAccounts } from "@/lib/brokerages";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
@@ -254,6 +256,7 @@ export default function AccountsPage() {
               <p className="font-medium text-zinc-200">{a.name}</p>
               <p className="text-xs text-zinc-500">
                 {CATEGORY_LABELS[a.category]}
+                {listBrokerageAccounts([a]).length > 0 ? " · Brokerage" : ""}
                 {a.notes ? ` · ${a.notes}` : ""}
               </p>
             </div>
@@ -275,8 +278,18 @@ export default function AccountsPage() {
         </p>
       ) : null}
 
+      {data ? (
+        <BrokerageQuickAdd
+          data={data}
+          onSave={save}
+          showAccountsLink={false}
+        />
+      ) : null}
+
       <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
-        <p className="text-xs font-medium text-muted">Quick add (Singapore)</p>
+        <p className="text-xs font-medium text-muted">
+          Quick add — banks, CPF & property
+        </p>
         <div className="mt-2 flex flex-wrap gap-2">
           {SG_ACCOUNT_PRESETS.map((preset) => (
             <button

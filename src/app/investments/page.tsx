@@ -2,6 +2,12 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { BrokerageQuickAdd } from "@/components/BrokerageQuickAdd";
+import { persistFinanceData } from "@/lib/client-finance";
+import {
+  brokerageNamesLabel,
+  listBrokerageAccounts,
+} from "@/lib/brokerages";
 import {
   formatCurrency,
   formatPercent,
@@ -108,17 +114,12 @@ export default function InvestmentsPage() {
   }, [holdings, refreshQuotes]);
 
   async function saveData(next: FinanceData) {
-    const res = await fetch("/api/finance", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      setMessage(err.error ?? "Failed to save");
+    const result = await persistFinanceData(next);
+    if (!result.ok) {
+      setMessage(result.error);
       return false;
     }
-    setData(next);
+    setData(result.data);
     return true;
   }
 
@@ -207,7 +208,7 @@ export default function InvestmentsPage() {
     setMessage(
       byAccount.size > 0
         ? `Updated ${byAccount.size} linked account(s) in latest snapshot.`
-        : `Portfolio total ${formatCurrency(totalSgd)} — link holdings to Moomoo / Syfe / Endowus to sync.`,
+        : `Portfolio total ${formatCurrency(totalSgd)} — link holdings to a brokerage to sync.`,
     );
   }
 
@@ -226,10 +227,9 @@ export default function InvestmentsPage() {
   const totalPnl = totalValue - totalCost;
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : null;
 
-  const brokerageAccounts =
-    data?.accounts.filter(
-      (a) => !a.archived && a.category === "investments",
-    ) ?? [];
+  const brokerageAccounts = data
+    ? listBrokerageAccounts(data.accounts)
+    : [];
 
   const entryLabel =
     market === "US" ? "Entry price (USD)" : market === "SG" ? "Entry price (SGD)" : "Entry price";
@@ -269,17 +269,30 @@ export default function InvestmentsPage() {
       </div>
 
       <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-secondary">
-        <p className="font-medium text-primary">Brokerages (Moomoo, Syfe, Endowus)</p>
+        <p className="font-medium text-primary">
+          Brokerages ({brokerageNamesLabel()})
+        </p>
         <p className="mt-1 leading-relaxed">
           These platforms don&apos;t offer a simple personal API to pull your
-          holdings automatically. Link each stock to{" "}
-          <strong className="text-primary">Moomoo</strong>,{" "}
-          <strong className="text-primary">Syfe</strong>, or{" "}
-          <strong className="text-primary">Endowus</strong> below, then use{" "}
-          <em>Sync to snapshot</em> to update account balances. For Syfe/Endowus
-          portfolio totals without individual tickers, enter the balance manually on
-          the Update tab.
+          holdings automatically. Add your broker below, link each stock, then
+          use <em>Sync to snapshot</em>. For robo/fund totals without tickers,
+          enter the balance on{" "}
+          <Link href="/accounts" className="text-accent hover:underline">
+            Accounts
+          </Link>
+          .
         </p>
+        {data ? (
+          <div className="mt-3">
+            <BrokerageQuickAdd
+              data={data}
+              onSave={saveData}
+              onAdded={(a) => setLinkedAccountId(a.id)}
+              showAccountsLink={false}
+              compact
+            />
+          </div>
+        ) : null}
       </div>
 
       {lastRefresh ? (
@@ -482,27 +495,21 @@ export default function InvestmentsPage() {
             />
           </label>
         </div>
-        {brokerageAccounts.length > 0 ? (
-          <label className="block text-sm">
-            <span className="text-secondary">Brokerage</span>
-            <select
-              className="mt-1 w-full"
-              value={linkedAccountId}
-              onChange={(e) => setLinkedAccountId(e.target.value)}
-            >
-              <option value="">—</option>
-              {brokerageAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <p className="text-xs text-muted">
-            Add Moomoo / Syfe / Endowus on the Accounts tab (quick-add presets).
-          </p>
-        )}
+        <label className="block text-sm">
+          <span className="text-secondary">Brokerage</span>
+          <select
+            className="mt-1 w-full"
+            value={linkedAccountId}
+            onChange={(e) => setLinkedAccountId(e.target.value)}
+          >
+            <option value="">—</option>
+            {brokerageAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="submit"
           disabled={!market || detecting}
