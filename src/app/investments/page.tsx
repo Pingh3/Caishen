@@ -232,7 +232,13 @@ export default function InvestmentsPage() {
     : [];
 
   const entryLabel =
-    market === "US" ? "Entry price (USD)" : market === "SG" ? "Entry price (SGD)" : "Entry price";
+    market === "US"
+      ? "Entry price (USD)"
+      : market === "HK"
+        ? "Entry price (HKD)"
+        : market === "SG"
+          ? "Entry price (SGD)"
+          : "Entry price";
 
   return (
     <div className="space-y-8">
@@ -469,7 +475,12 @@ export default function InvestmentsPage() {
             <p className="mt-1 text-xs text-muted">Detecting market…</p>
           ) : market ? (
             <p className="mt-1 text-xs text-positive">
-              Detected: {market === "SG" ? "Singapore (SGD)" : "US (USD)"}
+              Detected:{" "}
+              {market === "SG"
+                ? "Singapore (SGD)"
+                : market === "HK"
+                  ? "Hong Kong (HKD)"
+                  : "US (USD)"}
               {detectedName ? ` · ${detectedName}` : ""}
             </p>
           ) : null}

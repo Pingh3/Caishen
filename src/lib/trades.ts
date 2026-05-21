@@ -12,6 +12,13 @@ export function isTradeOpen(trade: Trade): boolean {
   return !trade.exitDate;
 }
 
+/** Native currency → SGD multiplier (uses USD/HKD cross via usdToSgd). */
+export function tradeFxToSgd(trade: Trade, usdToSgd: number): number {
+  if (trade.market === "US") return usdToSgd;
+  if (trade.market === "HK") return usdToSgd / 7.8;
+  return 1;
+}
+
 export function tradeDaysHeld(trade: Trade, asOf = new Date()): number {
   const start = new Date(trade.entryDate);
   const end = trade.exitDate ? new Date(trade.exitDate) : asOf;
@@ -51,7 +58,7 @@ export function tradePnlSgd(
 ): { pnlSgd: number; pnlPct: number | null } | null {
   const raw = tradePnlNative(trade, markPrice);
   if (!raw) return null;
-  const fx = trade.market === "US" ? usdToSgd : 1;
+  const fx = tradeFxToSgd(trade, usdToSgd);
   return {
     pnlSgd: raw.pnl * fx,
     pnlPct: raw.pnlPct,
@@ -82,7 +89,7 @@ export function computeJournalStats(
   const closedReturns: { won: boolean; pct: number }[] = [];
 
   for (const t of trades) {
-    const fx = t.market === "US" ? usdToSgd : 1;
+    const fx = tradeFxToSgd(t, usdToSgd);
     const costSgd = tradeCostNative(t) * fx;
 
     if (isTradeOpen(t)) {

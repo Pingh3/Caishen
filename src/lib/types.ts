@@ -45,7 +45,7 @@ export type Snapshot = {
   notes?: string;
 };
 
-export type StockMarket = "US" | "SG";
+export type StockMarket = "US" | "SG" | "HK";
 
 export type Holding = {
   id: string;
@@ -140,7 +140,7 @@ export type QuoteResult = {
   symbol: string;
   market: StockMarket;
   price: number;
-  currency: "USD" | "SGD";
+  currency: "USD" | "SGD" | "HKD";
   priceSgd: number;
   changePercent: number | null;
   name?: string;

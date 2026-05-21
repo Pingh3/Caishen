@@ -10,6 +10,11 @@ import {
   formatPercent,
   formatTradePrice,
 } from "@/lib/finance";
+import {
+  JOURNAL_FILTER_OPTIONS,
+  matchesJournalFilter,
+  type JournalFilter,
+} from "@/lib/journal-filters";
 import { normalizeSymbol } from "@/lib/market";
 import {
   TRADE_CATEGORY_LABELS,
@@ -27,8 +32,6 @@ import type {
   Trade,
   TradeCategory,
 } from "@/lib/types";
-
-type Filter = "all" | "open" | "closed" | "stocks" | "others";
 
 function newId(): string {
   return `tr-${Date.now().toString(36)}`;
@@ -63,7 +66,7 @@ export default function JournalPage() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
   const [usdToSgd, setUsdToSgd] = useState(1.35);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<JournalFilter>("all");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"ok" | "err">("ok");
   const [detecting, setDetecting] = useState(false);
@@ -130,13 +133,7 @@ export default function JournalPage() {
         (a, b) =>
           new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime(),
       )
-      .filter((t) => {
-        if (filter === "open") return isTradeOpen(t);
-        if (filter === "closed") return !isTradeOpen(t);
-        if (filter === "stocks") return t.category === "stocks";
-        if (filter === "others") return t.category !== "stocks";
-        return true;
-      });
+      .filter((t) => matchesJournalFilter(t, filter));
   }, [trades, filter]);
 
   async function saveData(next: FinanceData): Promise<boolean> {
@@ -428,7 +425,13 @@ export default function JournalPage() {
     : [];
 
   const currencyHint =
-    form.market === "US" ? "USD" : form.market === "SG" ? "SGD" : "native";
+    form.market === "US"
+      ? "USD"
+      : form.market === "HK"
+        ? "HKD"
+        : form.market === "SG"
+          ? "SGD"
+          : "native";
 
   if (!data) {
     return <p className="text-sm text-muted">Loading journal…</p>;
@@ -608,15 +611,7 @@ export default function JournalPage() {
       </section>
 
       <div className="flex flex-wrap gap-2">
-        {(
-          [
-            ["all", "All"],
-            ["open", "Open"],
-            ["closed", "Closed"],
-            ["stocks", "Stocks"],
-            ["others", "Govt & robo"],
-          ] as const
-        ).map(([key, label]) => (
+        {JOURNAL_FILTER_OPTIONS.map(({ key, label }) => (
           <button
             key={key}
             type="button"
@@ -828,11 +823,35 @@ export default function JournalPage() {
               onBlur={(e) => detectSymbol(e.target.value)}
               required
             />
+            {form.category === "stocks" ? (
+              <label className="mt-2 block text-xs">
+                <span className="text-muted">Market</span>
+                <select
+                  className="mt-1 w-full"
+                  value={form.market ?? ""}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      market: (e.target.value || null) as StockMarket | null,
+                    }))
+                  }
+                >
+                  <option value="">Auto-detect</option>
+                  <option value="SG">SG · SGD</option>
+                  <option value="US">US · USD</option>
+                  <option value="HK">HK · HKD</option>
+                </select>
+              </label>
+            ) : null}
             {detecting ? (
               <p className="mt-1 text-xs text-muted">Detecting market…</p>
-            ) : form.market ? (
+            ) : form.market && form.category === "stocks" ? (
               <p className="mt-1 text-xs text-positive">
-                {form.market === "SG" ? "SGX · SGD" : "US · USD"}
+                {form.market === "SG"
+                  ? "SGX · SGD"
+                  : form.market === "HK"
+                    ? "HKEX · HKD"
+                    : "US · USD"}
               </p>
             ) : null}
           </label>

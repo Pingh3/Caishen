@@ -28,7 +28,9 @@ type YahooDivEvent = {
 
 function yahooSymbol(symbol: string, market: StockMarket): string {
   const base = normalizeSymbol(symbol);
-  return market === "SG" ? `${base}.SI` : base;
+  if (market === "SG") return `${base}.SI`;
+  if (market === "HK") return `${base}.HK`;
+  return base;
 }
 
 export async function fetchDividendsForTrade(

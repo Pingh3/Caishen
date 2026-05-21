@@ -80,6 +80,7 @@ function mapMarket(geo: string | undefined, currency: string | undefined): Stock
   const g = (geo ?? "").toUpperCase();
   const cur = (currency ?? "").toUpperCase();
   if (g.includes("U.S") || g === "US" || cur === "USD") return "US";
+  if (g.includes("HONG") || g === "HK" || cur === "HKD") return "HK";
   return "SG";
 }
 

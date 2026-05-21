@@ -67,7 +67,7 @@ export function formatUsd(n: number): string {
 /** Per-unit trade prices in listing currency (always 2 dp). */
 export function formatTradePrice(
   n: number,
-  market: "US" | "SG",
+  market: "US" | "SG" | "HK",
 ): string {
   const opts = {
     style: "currency" as const,
@@ -76,6 +76,11 @@ export function formatTradePrice(
   };
   if (market === "US") {
     return new Intl.NumberFormat("en-US", { ...opts, currency: "USD" }).format(
+      n,
+    );
+  }
+  if (market === "HK") {
+    return new Intl.NumberFormat("en-HK", { ...opts, currency: "HKD" }).format(
       n,
     );
   }

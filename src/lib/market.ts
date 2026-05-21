@@ -2,9 +2,8 @@ import type { Holding, QuoteResult, StockMarket, Trade } from "./types";
 
 function yahooSymbol(symbol: string, market: StockMarket): string {
   const s = normalizeSymbol(symbol);
-  if (market === "SG") {
-    return `${s}.SI`;
-  }
+  if (market === "SG") return `${s}.SI`;
+  if (market === "HK") return `${s}.HK`;
   return s;
 }
 
@@ -68,8 +67,14 @@ export async function fetchQuote(
 
     const prev = meta.chartPreviousClose ?? price;
     const changePercent = prev ? ((price - prev) / prev) * 100 : null;
-    const currency = market === "SG" ? "SGD" : "USD";
-    const priceSgd = currency === "SGD" ? price : price * usdToSgd;
+    const currency =
+      market === "SG" ? "SGD" : market === "HK" ? "HKD" : "USD";
+    const priceSgd =
+      currency === "SGD"
+        ? price
+        : currency === "HKD"
+          ? price * (usdToSgd / 7.8)
+          : price * usdToSgd;
 
     return {
       symbol: base,
@@ -167,6 +172,7 @@ export function entryPriceSgd(
   usdToSgd: number,
 ): number {
   if (holding.market === "SG") return holding.avgEntryPrice;
+  if (holding.market === "HK") return holding.avgEntryPrice * (usdToSgd / 7.8);
   return holding.avgEntryPrice * usdToSgd;
 }
 
