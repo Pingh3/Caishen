@@ -22,6 +22,11 @@ import {
   matchesJournalFilter,
   type JournalFilter,
 } from "@/lib/journal-filters";
+import {
+  US_DIVIDEND_WHT_RATE,
+  netDividendFromGross,
+  tradeDividendPerShare,
+} from "@/lib/dividends";
 import { normalizeSymbol } from "@/lib/market";
 import {
   TRADE_CATEGORY_LABELS,
@@ -228,8 +233,18 @@ export default function JournalPage() {
             : "",
       exitCommission:
         t.exitCommission !== undefined ? String(t.exitCommission) : "",
-      dividendIncome:
-        t.dividendIncome !== undefined ? String(t.dividendIncome) : "",
+      dividendIncome: (() => {
+        if (t.dividendGross !== undefined) return String(t.dividendGross);
+        if (t.dividendIncome === undefined) return "";
+        if (t.market === "US" && t.dividendsAutoUpdated) {
+          return String(
+            Math.round(
+              (t.dividendIncome / (1 - US_DIVIDEND_WHT_RATE)) * 100,
+            ) / 100,
+          );
+        }
+        return String(t.dividendIncome);
+      })(),
       ideaSource: t.ideaSource ?? "",
       notes: t.notes ?? "",
       linkedAccountId: t.linkedAccountId ?? "",
@@ -282,11 +297,24 @@ export default function JournalPage() {
       return "Tab out of the symbol field to detect SG vs US market.";
     }
 
+    const market = (resolvedMarket ?? "SG") as StockMarket;
+    const dividendInput = parseNum(form.dividendIncome);
+    let dividendGross: number | undefined;
+    let dividendIncome: number | undefined;
+    if (dividendInput !== undefined) {
+      if (market === "US") {
+        dividendGross = dividendInput;
+        dividendIncome = netDividendFromGross("US", dividendInput);
+      } else {
+        dividendIncome = dividendInput;
+      }
+    }
+
     return {
       id,
       entryDate: form.entryDate,
       exitDate: form.exitDate.trim() || undefined,
-      market: (resolvedMarket ?? "SG") as StockMarket,
+      market,
       category: form.category,
       symbol:
         form.category === "stocks"
@@ -298,7 +326,8 @@ export default function JournalPage() {
       exitPrice: parseNum(form.exitPrice),
       entryCommission: parseNum(form.entryCommission),
       exitCommission: parseNum(form.exitCommission),
-      dividendIncome: parseNum(form.dividendIncome),
+      dividendGross,
+      dividendIncome,
       linkedAccountId: form.linkedAccountId || undefined,
       ideaSource: form.ideaSource.trim() || undefined,
       notes: form.notes.trim() || undefined,
@@ -665,7 +694,7 @@ export default function JournalPage() {
 
       {filtered.length > 0 ? (
         <div className="overflow-x-auto rounded-xl border border-surface-border">
-          <table className="w-full min-w-[1000px] text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead className="bg-surface-raised text-left text-xs text-muted">
               <tr>
                 <th className="px-3 py-3">Entry</th>
@@ -675,7 +704,8 @@ export default function JournalPage() {
                 <th className="px-3 py-3 text-right">Entry</th>
                 <th className="px-3 py-3 text-right">Last/Exit</th>
                 <th className="px-3 py-3 text-right">Comm.</th>
-                <th className="px-3 py-3 text-right">Div.</th>
+                <th className="px-3 py-3 text-right">Div./share</th>
+                <th className="px-3 py-3 text-right">Div. total</th>
                 <th className="px-3 py-3 text-right">P&amp;L</th>
                 <th className="px-3 py-3" />
               </tr>
@@ -690,6 +720,8 @@ export default function JournalPage() {
                 const pnl = tradePnlSgd(t, mark, usdToSgd);
                 const comm = tradeTotalCommission(t);
                 const fmt = (n: number) => formatTradePrice(n, t.market);
+                const divPerShare = tradeDividendPerShare(t, "net");
+                const divPerShareGross = tradeDividendPerShare(t, "gross");
                 return (
                   <tr key={t.id} className="border-t border-surface-border">
                     <td className="px-3 py-2.5 text-xs text-secondary">
@@ -728,14 +760,35 @@ export default function JournalPage() {
                       {comm > 0 ? fmt(comm) : "—"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {t.dividendIncome
-                        ? fmt(t.dividendIncome)
-                        : "—"}
+                      {divPerShare !== null ? (
+                        <>
+                          {fmt(divPerShare)}
+                          {t.market === "US" && divPerShareGross !== null ? (
+                            <span className="block text-[10px] text-muted">
+                              gross {fmt(divPerShareGross)}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
+                      {t.dividendIncome !== undefined ? (
+                        <>
+                          {fmt(t.dividendIncome)}
+                          <span className="block text-[10px] text-muted">net</span>
+                          {t.market === "US" && t.dividendGross !== undefined ? (
+                            <span className="block text-[10px] text-muted">
+                              gross {fmt(t.dividendGross)}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        "—"
+                      )}
                       {t.dividendsAutoUpdated ? (
-                        <span className="block text-[10px] text-muted">
-                          auto
-                          {t.market === "US" ? " · net" : ""}
-                        </span>
+                        <span className="block text-[10px] text-muted">auto</span>
                       ) : null}
                     </td>
                     <td
@@ -973,22 +1026,43 @@ export default function JournalPage() {
           </label>
           <label className="block text-sm">
             <span className="text-secondary">
-              Dividends ({currencyHint}, optional)
+              {form.market === "US"
+                ? `Dividends gross total (${currencyHint}, optional)`
+                : `Dividends total (${currencyHint}, optional)`}
             </span>
             <input
               className="mt-1 w-full font-mono"
-              placeholder={
-                form.market === "US" ? "Net after 30% WHT" : undefined
-              }
+              placeholder={form.market === "US" ? "e.g. 100 → saves $70 net" : undefined}
               value={form.dividendIncome}
               onChange={(e) =>
                 setForm((f) => ({ ...f, dividendIncome: e.target.value }))
               }
             />
+            {form.market === "US" && form.dividendIncome.trim() ? (
+              <p className="mt-1 text-[10px] text-positive">
+                Net total:{" "}
+                {formatTradePrice(
+                  netDividendFromGross(
+                    "US",
+                    Number(form.dividendIncome.replace(/,/g, "")) || 0,
+                  ),
+                  "US",
+                )}
+                {form.quantity.trim()
+                  ? ` · ${formatTradePrice(
+                      netDividendFromGross(
+                        "US",
+                        Number(form.dividendIncome.replace(/,/g, "")) || 0,
+                      ) / (Number(form.quantity.replace(/,/g, "")) || 1),
+                      "US",
+                    )}/share`
+                  : null}
+              </p>
+            ) : null}
             <p className="mt-1 text-[10px] text-muted">
               {form.market === "US"
-                ? "Leave blank to auto-fill net (70% of Yahoo gross) on page load."
-                : "Leave blank to auto-fill from Yahoo on page load"}
+                ? "US: enter gross total; 30% WHT is deducted automatically. Leave blank to auto-fill from Yahoo."
+                : "Leave blank to auto-fill from Yahoo on page load."}
             </p>
           </label>
         </div>

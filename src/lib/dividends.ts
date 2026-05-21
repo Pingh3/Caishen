@@ -4,7 +4,7 @@ import { normalizeSymbol } from "./market";
 /** Default US dividend withholding for non-US tax residents (e.g. via broker). */
 export const US_DIVIDEND_WHT_RATE = 0.3;
 
-/** Convert gross dividend (Yahoo) to net amount stored on trades. SG/other: unchanged. */
+/** Convert gross dividend total to net (US: ×70%). */
 export function netDividendFromGross(
   market: StockMarket,
   grossNative: number,
@@ -15,6 +15,25 @@ export function netDividendFromGross(
       : grossNative;
   return Math.round(net * 100) / 100;
 }
+
+export function tradeDividendPerShare(
+  trade: Trade,
+  which: "net" | "gross" = "net",
+): number | null {
+  if (trade.quantity <= 0) return null;
+  const total =
+    which === "gross"
+      ? trade.dividendGross ?? (trade.market === "US" ? undefined : trade.dividendIncome)
+      : trade.dividendIncome;
+  if (total === undefined) return null;
+  return Math.round((total / trade.quantity) * 10000) / 10000;
+}
+
+export type DividendFetchResult = {
+  perShareGross: number;
+  grossTotal: number;
+  payments: number;
+};
 
 type YahooDivEvent = {
   chart?: {
@@ -33,16 +52,23 @@ function yahooSymbol(symbol: string, market: StockMarket): string {
   return base;
 }
 
+function tradeDateRange(trade: Trade): { start: number; end: number } {
+  const start = Math.floor(
+    new Date(`${trade.entryDate}T00:00:00`).getTime() / 1000,
+  );
+  const end = trade.exitDate
+    ? Math.floor(new Date(`${trade.exitDate}T23:59:59`).getTime() / 1000)
+    : Math.floor(Date.now() / 1000);
+  return { start, end };
+}
+
 export async function fetchDividendsForTrade(
   trade: Trade,
-): Promise<{ totalNative: number; payments: number } | null> {
+): Promise<DividendFetchResult | null> {
   if (trade.category !== "stocks") return null;
 
   const ySym = yahooSymbol(trade.symbol, trade.market);
-  const start = Math.floor(new Date(trade.entryDate).getTime() / 1000);
-  const end = trade.exitDate
-    ? Math.floor(new Date(trade.exitDate).getTime() / 1000)
-    : Math.floor(Date.now() / 1000);
+  const { start, end } = tradeDateRange(trade);
 
   try {
     const url =
@@ -57,18 +83,19 @@ export async function fetchDividendsForTrade(
 
     const json = (await res.json()) as YahooDivEvent;
     const events = json.chart?.result?.[0]?.events?.dividends ?? {};
-    let perShareTotal = 0;
+    let perShareGross = 0;
     let payments = 0;
 
     for (const ev of Object.values(events)) {
       if (ev.date >= start && ev.date <= end) {
-        perShareTotal += ev.amount;
+        perShareGross += ev.amount;
         payments += 1;
       }
     }
 
     return {
-      totalNative: perShareTotal * trade.quantity,
+      perShareGross,
+      grossTotal: perShareGross * trade.quantity,
       payments,
     };
   } catch {
@@ -101,10 +128,13 @@ export async function applyDividendsToTrades(
       const result = await fetchDividendsForTrade(t);
       if (result === null || result.payments === 0) return;
 
-      const net = netDividendFromGross(t.market, result.totalNative);
+      const grossTotal = Math.round(result.grossTotal * 100) / 100;
+      const netTotal = netDividendFromGross(t.market, grossTotal);
+
       next[i] = {
         ...t,
-        dividendIncome: net,
+        dividendGross: t.market === "US" ? grossTotal : undefined,
+        dividendIncome: netTotal,
         dividendsAutoUpdated: today,
       };
       updated += 1;
