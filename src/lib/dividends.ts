@@ -76,26 +76,41 @@ export async function fetchDividendsForTrade(
   }
 }
 
+export type DividendApplyResult = {
+  trades: Trade[];
+  updated: number;
+  /** US trades where gross Yahoo total was reduced by 30% WHT */
+  usNetApplied: number;
+};
+
 export async function applyDividendsToTrades(
   trades: Trade[],
-): Promise<{ trades: Trade[]; updated: number }> {
+): Promise<DividendApplyResult> {
   const next = [...trades];
   let updated = 0;
+  let usNetApplied = 0;
+  const today = new Date().toISOString().slice(0, 10);
 
-  for (let i = 0; i < next.length; i++) {
-    const t = next[i];
-    if (t.category !== "stocks") continue;
+  const stockIndexes = next
+    .map((t, i) => (t.category === "stocks" ? i : -1))
+    .filter((i) => i >= 0);
 
-    const result = await fetchDividendsForTrade(t);
-    if (result === null) continue;
+  await Promise.all(
+    stockIndexes.map(async (i) => {
+      const t = next[i];
+      const result = await fetchDividendsForTrade(t);
+      if (result === null || result.payments === 0) return;
 
-    next[i] = {
-      ...t,
-      dividendIncome: netDividendFromGross(t.market, result.totalNative),
-      dividendsAutoUpdated: new Date().toISOString().slice(0, 10),
-    };
-    updated += 1;
-  }
+      const net = netDividendFromGross(t.market, result.totalNative);
+      next[i] = {
+        ...t,
+        dividendIncome: net,
+        dividendsAutoUpdated: today,
+      };
+      updated += 1;
+      if (t.market === "US") usNetApplied += 1;
+    }),
+  );
 
-  return { trades: next, updated };
+  return { trades: next, updated, usNetApplied };
 }

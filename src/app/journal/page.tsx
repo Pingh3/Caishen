@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { BrokerageQuickAdd } from "@/components/BrokerageQuickAdd";
 import { listBrokerageAccounts } from "@/lib/brokerages";
 import { loadFinanceData, persistFinanceData } from "@/lib/client-finance";
@@ -77,6 +84,7 @@ export default function JournalPage() {
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
 
   const [form, setForm] = useState(emptyForm);
+  const dividendsAutoRan = useRef(false);
 
   const trades = useMemo(() => data?.trades ?? [], [data?.trades]);
 
@@ -108,6 +116,45 @@ export default function JournalPage() {
     setUsdToSgd(json.usdToSgd);
   }, []);
 
+  const runDividendUpdate = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setSaving(true);
+      try {
+        const res = await fetch("/api/journal/dividends", { method: "POST" });
+        const json = (await res.json()) as {
+          updated?: number;
+          usNetApplied?: number;
+          error?: string;
+        };
+        if (!res.ok) {
+          if (!opts?.silent) setMsg(json.error ?? "Dividend update failed", "err");
+          return;
+        }
+        const refreshed = await loadFinanceData();
+        setData(refreshed);
+        await refreshQuotes(refreshed.trades ?? []);
+        const n = json.updated ?? 0;
+        const us = json.usNetApplied ?? 0;
+        if (!opts?.silent || n > 0) {
+          setMsg(
+            n > 0
+              ? `Dividends updated for ${n} trade(s)` +
+                  (us > 0 ? ` — ${us} US with 30% WHT netted off` : "") +
+                  "."
+              : opts?.silent
+                ? ""
+                : "No dividend payments found in holding periods.",
+          );
+        }
+      } catch {
+        if (!opts?.silent) setMsg("Dividend update failed.", "err");
+      } finally {
+        if (!opts?.silent) setSaving(false);
+      }
+    },
+    [refreshQuotes],
+  );
+
   useEffect(() => {
     loadFinanceData()
       .then((json) => {
@@ -116,6 +163,13 @@ export default function JournalPage() {
       })
       .catch(() => setMsg("Could not load data.", "err"));
   }, [refreshQuotes]);
+
+  useEffect(() => {
+    if (!data?.trades?.length || dividendsAutoRan.current) return;
+    if (!data.trades.some((t) => t.category === "stocks")) return;
+    dividendsAutoRan.current = true;
+    void runDividendUpdate({ silent: true });
+  }, [data, runDividendUpdate]);
 
   const quoteMap = useMemo(
     () => new Map(quotes.map((q) => [`${q.market}:${q.symbol}`, q])),
@@ -397,27 +451,8 @@ export default function JournalPage() {
     }
   }
 
-  async function refreshDividends() {
-    if (!data || trades.length === 0) return;
-    setSaving(true);
-    try {
-      const res = await fetch("/api/journal/dividends", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) {
-        setMsg(json.error ?? "Dividend update failed", "err");
-        return;
-      }
-      const refreshed = await loadFinanceData();
-      setData(refreshed);
-      await refreshQuotes(refreshed.trades ?? []);
-      setMsg(
-        `Updated dividends for ${json.updated ?? 0} stock trade(s) (US: net after 30% WHT).`,
-      );
-    } catch {
-      setMsg("Dividend update failed.", "err");
-    } finally {
-      setSaving(false);
-    }
+  function refreshDividends() {
+    void runDividendUpdate();
   }
 
   const brokerageAccounts = data
@@ -444,7 +479,8 @@ export default function JournalPage() {
           <h2 className="text-lg font-semibold text-primary">Trading journal</h2>
           <p className="text-sm text-secondary">
             Log each buy/sell once. Commission is in {currencyHint} per trade.
-            Open stocks sync to{" "}
+            US stock dividends auto-fill as net (30% WHT off) from Yahoo when you
+            open this page. Open stocks sync to{" "}
             <Link href="/investments" className="text-accent hover:underline">
               Investments
             </Link>
@@ -696,7 +732,10 @@ export default function JournalPage() {
                         ? fmt(t.dividendIncome)
                         : "—"}
                       {t.dividendsAutoUpdated ? (
-                        <span className="block text-[10px]">auto</span>
+                        <span className="block text-[10px] text-muted">
+                          auto
+                          {t.market === "US" ? " · net" : ""}
+                        </span>
                       ) : null}
                     </td>
                     <td
@@ -948,8 +987,8 @@ export default function JournalPage() {
             />
             <p className="mt-1 text-[10px] text-muted">
               {form.market === "US"
-                ? "Enter net received. Update dividends applies 30% US WHT from Yahoo gross."
-                : "Or use Update dividends for stocks"}
+                ? "Leave blank to auto-fill net (70% of Yahoo gross) on page load."
+                : "Leave blank to auto-fill from Yahoo on page load"}
             </p>
           </label>
         </div>

@@ -12,11 +12,12 @@ export async function POST() {
       return NextResponse.json({ updated: 0, trades: [] });
     }
 
-    const { trades: nextTrades, updated } = await applyDividendsToTrades(trades);
+    const { trades: nextTrades, updated, usNetApplied } =
+      await applyDividendsToTrades(trades);
     const next = { ...data, trades: nextTrades };
     await writeFinanceData(next);
 
-    return NextResponse.json({ updated, trades: nextTrades });
+    return NextResponse.json({ updated, usNetApplied, trades: nextTrades });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Dividend update failed";
     return NextResponse.json({ error: message }, { status: 500 });
