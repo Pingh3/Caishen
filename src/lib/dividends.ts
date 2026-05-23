@@ -254,9 +254,38 @@ export function clearDividendsOnTrades(
   return { trades: next, cleared };
 }
 
-/** @deprecated Bulk auto-fill removed — use suggest + manual broker amounts. */
-export async function applyDividendsToTrades(
+/** Yahoo ex-dates in holding window → payments; US net is after 30% WHT. */
+export async function fillTradeDividendsFromYahoo(
+  trade: Trade,
+): Promise<Trade | null> {
+  if (trade.category !== "stocks") return null;
+  const payments = await suggestDividendsFromYahoo(trade);
+  if (payments.length === 0) return null;
+  return {
+    ...trade,
+    ...syncTradeDividendTotals(trade, payments),
+  };
+}
+
+export async function fillDividendsOnTrades(
   trades: Trade[],
-): Promise<{ trades: Trade[]; updated: number; usNetApplied: number }> {
-  return { trades, updated: 0, usNetApplied: 0 };
+  tradeIds: Set<string>,
+): Promise<{ trades: Trade[]; filled: number; skipped: number }> {
+  let filled = 0;
+  let skipped = 0;
+
+  const next = await Promise.all(
+    trades.map(async (t) => {
+      if (!tradeIds.has(t.id) || t.category !== "stocks") return t;
+      const updated = await fillTradeDividendsFromYahoo(t);
+      if (!updated) {
+        skipped += 1;
+        return t;
+      }
+      filled += 1;
+      return updated;
+    }),
+  );
+
+  return { trades: next, filled, skipped };
 }

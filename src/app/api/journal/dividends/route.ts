@@ -1,12 +1,42 @@
 import { NextResponse } from "next/server";
+import { fillDividendsOnTrades } from "@/lib/dividends";
+import { readFinanceData, writeFinanceData } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
-/** Bulk auto-fill removed — add payments per trade in the journal form. */
-export async function POST() {
-  return NextResponse.json({
-    updated: 0,
-    message:
-      "Enter dividend payments on each trade from your broker. Use Load Yahoo hints in the form if needed.",
-  });
+/** Fill stock dividends from Yahoo for selected trades (US: net after 30% WHT). */
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json().catch(() => ({}))) as {
+      tradeIds?: string[];
+    };
+    const tradeIds = body.tradeIds;
+    if (!tradeIds?.length) {
+      return NextResponse.json(
+        { error: "tradeIds required." },
+        { status: 400 },
+      );
+    }
+
+    const data = await readFinanceData();
+    const trades = data.trades ?? [];
+    const ids = new Set(tradeIds);
+
+    const { trades: nextTrades, filled, skipped } = await fillDividendsOnTrades(
+      trades,
+      ids,
+    );
+
+    await writeFinanceData({ ...data, trades: nextTrades });
+
+    return NextResponse.json({
+      filled,
+      skipped,
+      note:
+        "US totals are net after 30% withholding. Yahoo uses ex-dates in your holding window — edit trades to match broker cash.",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Fill dividends failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

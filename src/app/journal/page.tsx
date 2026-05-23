@@ -24,7 +24,6 @@ import {
 } from "@/lib/journal-filters";
 import {
   clearDividendsOnTrades,
-  holdingPeriodLabel,
   syncTradeDividendTotals,
   tradeDividendSummary,
   tradeHasDividends,
@@ -159,6 +158,11 @@ export default function JournalPage() {
 
   const filteredWithDividends = useMemo(
     () => filtered.filter(tradeHasDividends),
+    [filtered],
+  );
+
+  const filteredStocks = useMemo(
+    () => filtered.filter((t) => t.category === "stocks"),
     [filtered],
   );
 
@@ -341,6 +345,70 @@ export default function JournalPage() {
     }
   }
 
+  async function fillFilteredDividends() {
+    if (!data) return;
+    const targets = filteredStocks;
+    if (targets.length === 0) {
+      setMsg(`No stock trades in “${filterLabel}”.`, "err");
+      return;
+    }
+    const scope =
+      filter === "all"
+        ? `${targets.length} stock trade(s)`
+        : `${targets.length} stock trade(s) in “${filterLabel}”`;
+    const hasExisting = targets.some(tradeHasDividends);
+    if (
+      !window.confirm(
+        `Fill dividends from Yahoo for ${scope}?` +
+          (hasExisting
+            ? " Existing dividend data on these trades will be replaced."
+            : "") +
+          " US amounts are net after 30% withholding (div./share and total). Ex-dates in each holding window are summed — edit a trade if your broker differs.",
+      )
+    ) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/journal/dividends", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tradeIds: targets.map((t) => t.id) }),
+      });
+      const json = (await res.json()) as {
+        filled?: number;
+        skipped?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        setMsg(json.error ?? "Fill dividends failed.", "err");
+        return;
+      }
+      const refreshed = await loadFinanceData();
+      setData(refreshed);
+      await refreshQuotes(refreshed.trades ?? []);
+      const filled = json.filled ?? 0;
+      const skipped = json.skipped ?? 0;
+      if (filled === 0) {
+        setMsg(
+          `No Yahoo dividends found in holding periods (${skipped} skipped).`,
+          "err",
+        );
+        return;
+      }
+      setMsg(
+        `Filled dividends on ${filled} trade(s)${filter === "all" ? "" : ` (${filterLabel})`}` +
+          (skipped > 0 ? ` · ${skipped} with no ex-dates in window` : "") +
+          ". US: net after 30% WHT.",
+      );
+    } catch {
+      setMsg("Fill dividends failed.", "err");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function clearFilteredDividends() {
     if (!data) return;
     const targets = filteredWithDividends;
@@ -507,8 +575,8 @@ export default function JournalPage() {
           <h2 className="text-lg font-semibold text-primary">Trading journal</h2>
           <p className="text-sm text-secondary">
             Log each buy/sell once. Commission is in {currencyHint} per trade.
-            Stock dividends: enter each cash payment from your broker (Yahoo is
-            hints only). Open stocks sync to{" "}
+            Stock dividends: use Fill / Clear for the current filter (US net after
+            30% WHT), or enter cash payments per trade. Open stocks sync to{" "}
             <Link href="/investments" className="text-accent hover:underline">
               Investments
             </Link>
@@ -683,23 +751,40 @@ export default function JournalPage() {
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          disabled={saving || filteredWithDividends.length === 0}
-          onClick={() => void clearFilteredDividends()}
-          className="rounded-lg border border-surface-border px-3 py-1.5 text-sm text-secondary hover:border-negative/40 hover:text-negative disabled:opacity-50"
-          title={
-            filteredWithDividends.length === 0
-              ? "No dividends in this view"
-              : undefined
-          }
-        >
-          Clear dividends
-          {filter === "all" ? "" : ` (${filterLabel})`}
-          {filteredWithDividends.length > 0
-            ? ` · ${filteredWithDividends.length}`
-            : ""}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={saving || filteredStocks.length === 0}
+            onClick={() => void fillFilteredDividends()}
+            className="rounded-lg border border-surface-border px-3 py-1.5 text-sm text-secondary hover:border-accent/40 hover:text-accent disabled:opacity-50"
+            title={
+              filteredStocks.length === 0
+                ? "No stock trades in this view"
+                : "Yahoo ex-dates in holding window; US net after 30% WHT"
+            }
+          >
+            Fill dividends
+            {filter === "all" ? "" : ` (${filterLabel})`}
+            {filteredStocks.length > 0 ? ` · ${filteredStocks.length}` : ""}
+          </button>
+          <button
+            type="button"
+            disabled={saving || filteredWithDividends.length === 0}
+            onClick={() => void clearFilteredDividends()}
+            className="rounded-lg border border-surface-border px-3 py-1.5 text-sm text-secondary hover:border-negative/40 hover:text-negative disabled:opacity-50"
+            title={
+              filteredWithDividends.length === 0
+                ? "No dividends in this view"
+                : undefined
+            }
+          >
+            Clear dividends
+            {filter === "all" ? "" : ` (${filterLabel})`}
+            {filteredWithDividends.length > 0
+              ? ` · ${filteredWithDividends.length}`
+              : ""}
+          </button>
+        </div>
       </div>
 
       {filtered.length > 0 ? (
@@ -769,42 +854,10 @@ export default function JournalPage() {
                       {comm > 0 ? fmt(comm) : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {div ? (
-                        <>
-                          {fmt(div.perShareNet)}
-                          {t.market === "US" && div.perShareGross !== undefined ? (
-                            <span className="block text-[10px] text-muted">
-                              gross {fmt(div.perShareGross)}
-                            </span>
-                          ) : null}
-                        </>
-                      ) : (
-                        "-"
-                      )}
+                      {div ? fmt(div.perShareNet) : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {div ? (
-                        <>
-                          {fmt(div.netTotal)}
-                          {t.market === "US" && div.grossTotal !== undefined ? (
-                            <span className="block text-[10px] text-muted">
-                              gross {fmt(div.grossTotal)}
-                            </span>
-                          ) : null}
-                          {div.payments.length > 0 ? (
-                            <span className="block max-w-[180px] text-[10px] text-muted">
-                              {div.payments.length === 1
-                                ? `paid ${div.payments[0].paymentDate}`
-                                : `${div.payments.length} payments: ${div.payments[0].paymentDate} – ${div.payments[div.payments.length - 1].paymentDate}`}
-                            </span>
-                          ) : null}
-                          <span className="block text-[10px] text-muted">
-                            {holdingPeriodLabel(t)}
-                          </span>
-                        </>
-                      ) : (
-                        "-"
-                      )}
+                      {div ? fmt(div.netTotal) : "-"}
                     </td>
                     <td
                       className={`px-3 py-2.5 text-right font-mono text-xs ${
