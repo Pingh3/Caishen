@@ -25,6 +25,7 @@ import {
 import {
   US_DIVIDEND_WHT_RATE,
   netDividendFromGross,
+  holdingPeriodLabel,
   tradeDividendPerShare,
 } from "@/lib/dividends";
 import { normalizeSymbol } from "@/lib/market";
@@ -144,7 +145,7 @@ export default function JournalPage() {
           setMsg(
             n > 0
               ? `Dividends updated for ${n} trade(s)` +
-                  (us > 0 ? ` — ${us} US with 30% WHT netted off` : "") +
+                  (us > 0 ? ` â€” ${us} US with 30% WHT netted off` : "") +
                   "."
               : opts?.silent
                 ? ""
@@ -498,7 +499,7 @@ export default function JournalPage() {
           : "native";
 
   if (!data) {
-    return <p className="text-sm text-muted">Loading journal…</p>;
+    return <p className="text-sm text-muted">Loading journalâ€¦</p>;
   }
 
   return (
@@ -508,8 +509,7 @@ export default function JournalPage() {
           <h2 className="text-lg font-semibold text-primary">Trading journal</h2>
           <p className="text-sm text-secondary">
             Log each buy/sell once. Commission is in {currencyHint} per trade.
-            US stock dividends auto-fill as net (30% WHT off) from Yahoo when you
-            open this page. Open stocks sync to{" "}
+            Dividends sum only ex-dates while you held (entry to exit), not the full year. US: net after 30% WHT. Open stocks sync to{" "}
             <Link href="/investments" className="text-accent hover:underline">
               Investments
             </Link>
@@ -539,7 +539,7 @@ export default function JournalPage() {
             onClick={syncToInvestments}
             className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            Sync open stocks → Investments
+            Sync open stocks â†’ Investments
           </button>
           <button
             type="button"
@@ -571,7 +571,7 @@ export default function JournalPage() {
             </li>
             <li>
               For each tab (<strong>Trades</strong>, <strong>Others</strong>):
-              File → Download → Comma-separated values (.csv)
+              File â†’ Download â†’ Comma-separated values (.csv)
             </li>
             <li>Upload each CSV below (import twice if you use both tabs)</li>
           </ol>
@@ -602,7 +602,7 @@ export default function JournalPage() {
           <textarea
             className="w-full font-mono text-xs"
             rows={4}
-            placeholder="Or paste CSV contents here…"
+            placeholder="Or paste CSV contents hereâ€¦"
             value={importCsv}
             onChange={(e) => setImportCsv(e.target.value)}
           />
@@ -612,7 +612,7 @@ export default function JournalPage() {
             onClick={onImportCsv}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            {saving ? "Importing…" : "Import trades"}
+            {saving ? "Importingâ€¦" : "Import trades"}
           </button>
         </section>
       ) : null}
@@ -651,13 +651,13 @@ export default function JournalPage() {
             {formatCurrency(stats.openUnrealizedSgd)}
           </p>
           <p className="text-xs text-muted">
-            {stats.openCount} open · {formatCurrency(stats.openCostSgd)}
+            {stats.openCount} open Â· {formatCurrency(stats.openCostSgd)}
           </p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <p className="text-xs uppercase text-muted">Win rate</p>
           <p className="font-mono text-xl font-semibold text-primary">
-            {stats.winRate !== null ? formatPercent(stats.winRate) : "—"}
+            {stats.winRate !== null ? formatPercent(stats.winRate) : "â€”"}
           </p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
@@ -665,12 +665,12 @@ export default function JournalPage() {
           <p className="font-mono text-sm font-semibold text-positive">
             {stats.avgWinPct !== null
               ? formatPercent(stats.avgWinPct, true)
-              : "—"}
+              : "â€”"}
           </p>
           <p className="font-mono text-sm font-semibold text-negative">
             {stats.avgLossPct !== null
               ? formatPercent(stats.avgLossPct)
-              : "—"}
+              : "â€”"}
           </p>
         </div>
       </section>
@@ -754,10 +754,10 @@ export default function JournalPage() {
                       {fmt(t.entryPrice)}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs">
-                      {mark !== undefined ? fmt(mark) : "—"}
+                      {mark !== undefined ? fmt(mark) : "â€”"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {comm > 0 ? fmt(comm) : "—"}
+                      {comm > 0 ? fmt(comm) : "â€”"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
                       {divPerShare !== null ? (
@@ -770,7 +770,7 @@ export default function JournalPage() {
                           ) : null}
                         </>
                       ) : (
-                        "—"
+                        "â€”"
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
@@ -785,8 +785,19 @@ export default function JournalPage() {
                           ) : null}
                         </>
                       ) : (
-                        "—"
+                        "â€”"
                       )}
+                      {t.dividendPayments && t.dividendPayments.length > 0 ? (
+                        <span className="block max-w-[140px] text-[10px] text-muted">
+                          {t.dividendPayments.length} pmt
+                          {t.dividendPayments.length === 1
+                            ? ` · ${t.dividendPayments[0].date}`
+                            : ` · ${t.dividendPayments[0].date}…${t.dividendPayments[t.dividendPayments.length - 1].date}`}
+                        </span>
+                      ) : null}
+                      <span className="block text-[10px] text-muted">
+                        {holdingPeriodLabel(t)}
+                      </span>
                       {t.dividendsAutoUpdated ? (
                         <span className="block text-[10px] text-muted">auto</span>
                       ) : null}
@@ -804,7 +815,7 @@ export default function JournalPage() {
                               ? ` (${formatPercent(pnl.pnlPct, true)})`
                               : ""
                           }`
-                        : "—"}
+                        : "â€”"}
                     </td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap">
                       <button
@@ -929,21 +940,21 @@ export default function JournalPage() {
                   }
                 >
                   <option value="">Auto-detect</option>
-                  <option value="SG">SG · SGD</option>
-                  <option value="US">US · USD</option>
-                  <option value="HK">HK · HKD</option>
+                  <option value="SG">SG Â· SGD</option>
+                  <option value="US">US Â· USD</option>
+                  <option value="HK">HK Â· HKD</option>
                 </select>
               </label>
             ) : null}
             {detecting ? (
-              <p className="mt-1 text-xs text-muted">Detecting market…</p>
+              <p className="mt-1 text-xs text-muted">Detecting marketâ€¦</p>
             ) : form.market && form.category === "stocks" ? (
               <p className="mt-1 text-xs text-positive">
                 {form.market === "SG"
-                  ? "SGX · SGD"
+                  ? "SGX Â· SGD"
                   : form.market === "HK"
-                    ? "HKEX · HKD"
-                    : "US · USD"}
+                    ? "HKEX Â· HKD"
+                    : "US Â· USD"}
               </p>
             ) : null}
           </label>
@@ -1032,7 +1043,7 @@ export default function JournalPage() {
             </span>
             <input
               className="mt-1 w-full font-mono"
-              placeholder={form.market === "US" ? "e.g. 100 → saves $70 net" : undefined}
+              placeholder={form.market === "US" ? "e.g. 100 â†’ saves $70 net" : undefined}
               value={form.dividendIncome}
               onChange={(e) =>
                 setForm((f) => ({ ...f, dividendIncome: e.target.value }))
@@ -1049,7 +1060,7 @@ export default function JournalPage() {
                   "US",
                 )}
                 {form.quantity.trim()
-                  ? ` · ${formatTradePrice(
+                  ? ` Â· ${formatTradePrice(
                       netDividendFromGross(
                         "US",
                         Number(form.dividendIncome.replace(/,/g, "")) || 0,
@@ -1076,7 +1087,7 @@ export default function JournalPage() {
               setForm((f) => ({ ...f, linkedAccountId: e.target.value }))
             }
           >
-            <option value="">—</option>
+            <option value="">â€”</option>
             {brokerageAccounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -1112,7 +1123,7 @@ export default function JournalPage() {
             onChange={(e) =>
               setForm((f) => ({ ...f, ideaSource: e.target.value }))
             }
-            placeholder="PT Alumni, ASSI…"
+            placeholder="PT Alumni, ASSIâ€¦"
           />
         </label>
 
@@ -1122,7 +1133,7 @@ export default function JournalPage() {
           className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-white disabled:opacity-50"
         >
           {saving
-            ? "Saving…"
+            ? "Savingâ€¦"
             : editingId
               ? "Save changes"
               : "Add to journal"}

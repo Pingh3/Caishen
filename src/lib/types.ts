@@ -101,6 +101,8 @@ export type Trade = {
   dividendIncome?: number;
   /** Total gross before WHT (US only). */
   dividendGross?: number;
+  /** Ex-dates and per-share amounts in the holding window */
+  dividendPayments?: { date: string; amountPerShare: number }[];
   /** Last date dividends were fetched from Yahoo */
   dividendsAutoUpdated?: string;
   linkedAccountId?: string;
