@@ -1,14 +1,75 @@
 import type { Holding, QuoteResult, StockMarket, Trade } from "./types";
 
-function yahooSymbol(symbol: string, market: StockMarket): string {
-  const s = normalizeSymbol(symbol);
-  if (market === "SG") return `${s}.SI`;
-  if (market === "HK") return `${s}.HK`;
-  return s;
+export type FxRates = {
+  usdToSgd: number;
+  hkdToSgd: number;
+};
+
+const DEFAULT_USD_SGD = 1.35;
+const DEFAULT_USD_HKD = 7.8;
+
+export function defaultFxRates(): FxRates {
+  return {
+    usdToSgd: DEFAULT_USD_SGD,
+    hkdToSgd: DEFAULT_USD_SGD / DEFAULT_USD_HKD,
+  };
+}
+
+export async function fetchFxRates(): Promise<FxRates> {
+  try {
+    const res = await fetch(
+      "https://api.frankfurter.app/latest?from=USD&to=SGD,HKD",
+      { next: { revalidate: 300 } },
+    );
+    if (!res.ok) throw new Error("fx failed");
+    const json = (await res.json()) as {
+      rates?: { SGD?: number; HKD?: number };
+    };
+    const usdToSgd = json.rates?.SGD ?? DEFAULT_USD_SGD;
+    const usdToHkd = json.rates?.HKD ?? DEFAULT_USD_HKD;
+    return {
+      usdToSgd,
+      hkdToSgd: usdToSgd / usdToHkd,
+    };
+  } catch {
+    return defaultFxRates();
+  }
+}
+
+export async function fetchUsdToSgd(): Promise<number> {
+  return (await fetchFxRates()).usdToSgd;
 }
 
 export function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().replace(/\.SI$/i, "");
+  return symbol
+    .trim()
+    .toUpperCase()
+    .replace(/\.SI$/i, "")
+    .replace(/\.HK$/i, "");
+}
+
+function yahooSymbol(symbol: string, market: StockMarket): string {
+  const base = normalizeSymbol(symbol);
+  if (market === "SG") return `${base}.SI`;
+  if (market === "HK") {
+    if (/^\d+$/.test(base)) return `${base.padStart(4, "0")}.HK`;
+    return `${base}.HK`;
+  }
+  return base;
+}
+
+export function fxForMarket(market: StockMarket, fx: FxRates): number {
+  if (market === "US") return fx.usdToSgd;
+  if (market === "HK") return fx.hkdToSgd;
+  return 1;
+}
+
+export function nativeToSgd(
+  amount: number,
+  market: StockMarket,
+  fx: FxRates,
+): number {
+  return amount * fxForMarket(market, fx);
 }
 
 type YahooChart = {
@@ -29,24 +90,21 @@ export type MarketDetection = {
   quote: QuoteResult;
 };
 
-export async function fetchUsdToSgd(): Promise<number> {
-  try {
-    const res = await fetch(
-      "https://api.frankfurter.app/latest?from=USD&to=SGD",
-      { next: { revalidate: 300 } },
-    );
-    if (!res.ok) throw new Error("fx failed");
-    const json = (await res.json()) as { rates?: { SGD?: number } };
-    return json.rates?.SGD ?? 1.35;
-  } catch {
-    return 1.35;
-  }
+function quoteCurrency(
+  metaCurrency: string | undefined,
+  market: StockMarket,
+): QuoteResult["currency"] {
+  const c = metaCurrency?.toUpperCase();
+  if (c === "SGD" || c === "USD" || c === "HKD") return c;
+  if (market === "SG") return "SGD";
+  if (market === "HK") return "HKD";
+  return "USD";
 }
 
 export async function fetchQuote(
   symbol: string,
   market: StockMarket,
-  usdToSgd: number,
+  fx: FxRates,
 ): Promise<QuoteResult | null> {
   const base = normalizeSymbol(symbol);
   const ySym = yahooSymbol(base, market);
@@ -67,14 +125,13 @@ export async function fetchQuote(
 
     const prev = meta.chartPreviousClose ?? price;
     const changePercent = prev ? ((price - prev) / prev) * 100 : null;
-    const currency =
-      market === "SG" ? "SGD" : market === "HK" ? "HKD" : "USD";
+    const currency = quoteCurrency(meta.currency, market);
     const priceSgd =
       currency === "SGD"
         ? price
         : currency === "HKD"
-          ? price * (usdToSgd / 7.8)
-          : price * usdToSgd;
+          ? price * fx.hkdToSgd
+          : price * fx.usdToSgd;
 
     return {
       symbol: base,
@@ -90,35 +147,89 @@ export async function fetchQuote(
   }
 }
 
-/** Try Yahoo quotes to infer SG (.SI) vs US listing. */
+function looksLikeSgCode(base: string): boolean {
+  return (
+    /^[A-Z]\d{2}[A-Z]?$/.test(base) ||
+    (base.length <= 4 &&
+      /^[A-Z0-9]+$/.test(base) &&
+      !/^[A-Z]{4,5}$/.test(base) &&
+      !/^\d+$/.test(base))
+  );
+}
+
+function looksLikeUsTicker(base: string): boolean {
+  return /^[A-Z]{4,5}$/.test(base);
+}
+
+function pickMarket(
+  base: string,
+  candidates: MarketDetection[],
+): MarketDetection {
+  if (candidates.length === 1) return candidates[0];
+
+  const byCurrency = candidates.filter((c) => {
+    if (c.market === "SG") return c.quote.currency === "SGD";
+    if (c.market === "HK") return c.quote.currency === "HKD";
+    return c.quote.currency === "USD";
+  });
+  const pool = byCurrency.length > 0 ? byCurrency : candidates;
+
+  if (/^\d{1,4}$/.test(base)) {
+    const hk = pool.find((c) => c.market === "HK");
+    if (hk) return hk;
+  }
+  if (looksLikeSgCode(base)) {
+    const sg = pool.find((c) => c.market === "SG");
+    if (sg) return sg;
+  }
+  if (looksLikeUsTicker(base)) {
+    const us = pool.find((c) => c.market === "US");
+    if (us) return us;
+  }
+
+  const hk = pool.find((c) => c.market === "HK");
+  const us = pool.find((c) => c.market === "US");
+  if (hk && us && /^[A-Z]{2,3}$/.test(base)) return hk;
+
+  const order: StockMarket[] = ["SG", "HK", "US"];
+  for (const m of order) {
+    const hit = pool.find((c) => c.market === m);
+    if (hit) return hit;
+  }
+  return pool[0];
+}
+
+/** Infer SG / HK / US listing via Yahoo Finance. */
 export async function detectMarket(
   symbol: string,
-  usdToSgd: number,
+  fx: FxRates,
 ): Promise<MarketDetection | null> {
-  const base = normalizeSymbol(symbol);
+  const raw = symbol.trim();
+  const base = normalizeSymbol(raw);
   if (!base) return null;
 
-  if (/\.SI$/i.test(symbol.trim())) {
-    const quote = await fetchQuote(base, "SG", usdToSgd);
+  if (/\.SI$/i.test(raw)) {
+    const quote = await fetchQuote(base, "SG", fx);
     return quote ? { market: "SG", quote } : null;
   }
+  if (/\.HK$/i.test(raw)) {
+    const quote = await fetchQuote(base, "HK", fx);
+    return quote ? { market: "HK", quote } : null;
+  }
 
-  const [sgQuote, usQuote] = await Promise.all([
-    fetchQuote(base, "SG", usdToSgd),
-    fetchQuote(base, "US", usdToSgd),
+  const [sgQuote, hkQuote, usQuote] = await Promise.all([
+    fetchQuote(base, "SG", fx),
+    fetchQuote(base, "HK", fx),
+    fetchQuote(base, "US", fx),
   ]);
 
-  if (sgQuote && usQuote) {
-    const looksSg =
-      /^[A-Z]\d{2}[A-Z]?$/.test(base) ||
-      (base.length <= 4 && /^[A-Z0-9]+$/.test(base) && !/^[A-Z]{4,5}$/.test(base));
-    return looksSg
-      ? { market: "SG", quote: sgQuote }
-      : { market: "US", quote: usQuote };
-  }
-  if (sgQuote) return { market: "SG", quote: sgQuote };
-  if (usQuote) return { market: "US", quote: usQuote };
-  return null;
+  const candidates: MarketDetection[] = [];
+  if (sgQuote) candidates.push({ market: "SG", quote: sgQuote });
+  if (hkQuote) candidates.push({ market: "HK", quote: hkQuote });
+  if (usQuote) candidates.push({ market: "US", quote: usQuote });
+
+  if (candidates.length === 0) return null;
+  return pickMarket(base, candidates);
 }
 
 function needsDescription(trade: Trade): boolean {
@@ -129,7 +240,7 @@ function needsDescription(trade: Trade): boolean {
 
 /** Fill missing trade descriptions from Yahoo Finance shortName. */
 export async function enrichTradeDescriptions(trades: Trade[]): Promise<Trade[]> {
-  const usdToSgd = await fetchUsdToSgd();
+  const fx = await fetchFxRates();
   const nameCache = new Map<string, string | null>();
   const next = [...trades];
 
@@ -139,7 +250,7 @@ export async function enrichTradeDescriptions(trades: Trade[]): Promise<Trade[]>
 
     const key = `${t.market}:${normalizeSymbol(t.symbol)}`;
     if (!nameCache.has(key)) {
-      const quote = await fetchQuote(t.symbol, t.market, usdToSgd);
+      const quote = await fetchQuote(t.symbol, t.market, fx);
       nameCache.set(key, quote?.name?.trim() ?? null);
     }
     const name = nameCache.get(key);
@@ -152,9 +263,9 @@ export async function enrichTradeDescriptions(trades: Trade[]): Promise<Trade[]>
 export async function fetchQuotesForHoldings(
   holdings: Holding[],
 ): Promise<QuoteResult[]> {
-  const usdToSgd = await fetchUsdToSgd();
+  const fx = await fetchFxRates();
   const results = await Promise.all(
-    holdings.map((h) => fetchQuote(h.symbol, h.market, usdToSgd)),
+    holdings.map((h) => fetchQuote(h.symbol, h.market, fx)),
   );
   return results.filter((q): q is QuoteResult => q !== null);
 }
@@ -169,23 +280,21 @@ export function holdingValueSgd(
 
 export function entryPriceSgd(
   holding: Holding,
-  usdToSgd: number,
+  fx: FxRates,
 ): number {
-  if (holding.market === "SG") return holding.avgEntryPrice;
-  if (holding.market === "HK") return holding.avgEntryPrice * (usdToSgd / 7.8);
-  return holding.avgEntryPrice * usdToSgd;
+  return nativeToSgd(holding.avgEntryPrice, holding.market, fx);
 }
 
-export function holdingCostSgd(holding: Holding, usdToSgd: number): number {
-  return holding.quantity * entryPriceSgd(holding, usdToSgd);
+export function holdingCostSgd(holding: Holding, fx: FxRates): number {
+  return holding.quantity * entryPriceSgd(holding, fx);
 }
 
 export function holdingPnl(
   holding: Holding,
   quote: QuoteResult | undefined,
-  usdToSgd: number,
+  fx: FxRates,
 ): { pnlSgd: number; pnlPercent: number | null; costSgd: number; valueSgd: number } {
-  const costSgd = holdingCostSgd(holding, usdToSgd);
+  const costSgd = holdingCostSgd(holding, fx);
   const valueSgd = holdingValueSgd(holding, quote);
   const pnlSgd = valueSgd - costSgd;
   const pnlPercent = costSgd > 0 ? (pnlSgd / costSgd) * 100 : null;

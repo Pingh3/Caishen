@@ -22,7 +22,10 @@ export function roundMoney(n: number): number {
 function yahooSymbol(symbol: string, market: StockMarket): string {
   const base = normalizeSymbol(symbol);
   if (market === "SG") return `${base}.SI`;
-  if (market === "HK") return `${base}.HK`;
+  if (market === "HK") {
+    if (/^\d+$/.test(base)) return `${base.padStart(4, "0")}.HK`;
+    return `${base}.HK`;
+  }
   return base;
 }
 
@@ -254,11 +257,16 @@ export function clearDividendsOnTrades(
   return { trades: next, cleared };
 }
 
-/** Yahoo ex-dates in holding window → payments; US net is after 30% WHT. */
+/** Yahoo fill is SG stocks only; US dividends are entered manually. */
+export function isFillableStockTrade(trade: Trade): boolean {
+  return trade.category === "stocks" && trade.market === "SG";
+}
+
+/** Yahoo ex-dates in holding window → payments (SG only). */
 export async function fillTradeDividendsFromYahoo(
   trade: Trade,
 ): Promise<Trade | null> {
-  if (trade.category !== "stocks") return null;
+  if (!isFillableStockTrade(trade)) return null;
   const payments = await suggestDividendsFromYahoo(trade);
   if (payments.length === 0) return null;
   return {
@@ -276,7 +284,7 @@ export async function fillDividendsOnTrades(
 
   const next = await Promise.all(
     trades.map(async (t) => {
-      if (!tradeIds.has(t.id) || t.category !== "stocks") return t;
+      if (!tradeIds.has(t.id) || !isFillableStockTrade(t)) return t;
       const updated = await fillTradeDividendsFromYahoo(t);
       if (!updated) {
         skipped += 1;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { detectMarket, fetchUsdToSgd } from "@/lib/market";
+import { detectMarket, fetchFxRates } from "@/lib/market";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +10,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "symbol required" }, { status: 400 });
   }
 
-  const usdToSgd = await fetchUsdToSgd();
-  const result = await detectMarket(symbol, usdToSgd);
+  const fx = await fetchFxRates();
+  const result = await detectMarket(symbol, fx);
   if (!result) {
     return NextResponse.json(
-      { error: "Could not find this ticker on US or SGX (Yahoo Finance)." },
+      { error: "Could not find this ticker on SGX, HKEX, or US (Yahoo Finance)." },
       { status: 404 },
     );
   }
 
-  return NextResponse.json({ ...result, usdToSgd });
+  return NextResponse.json({ ...result, ...fx });
 }

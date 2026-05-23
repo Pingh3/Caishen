@@ -28,7 +28,7 @@ import {
   tradeDividendSummary,
   tradeHasDividends,
 } from "@/lib/dividends";
-import { normalizeSymbol } from "@/lib/market";
+import { defaultFxRates, normalizeSymbol, type FxRates } from "@/lib/market";
 import {
   TRADE_CATEGORY_LABELS,
   computeJournalStats,
@@ -79,7 +79,7 @@ const emptyForm = {
 export default function JournalPage() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
-  const [usdToSgd, setUsdToSgd] = useState(1.35);
+  const [fx, setFx] = useState<FxRates>(defaultFxRates);
   const [filter, setFilter] = useState<JournalFilter>("all");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"ok" | "err">("ok");
@@ -120,9 +120,10 @@ export default function JournalPage() {
     const json = (await res.json()) as {
       quotes: QuoteResult[];
       usdToSgd: number;
+      hkdToSgd: number;
     };
     setQuotes(json.quotes);
-    setUsdToSgd(json.usdToSgd);
+    setFx({ usdToSgd: json.usdToSgd, hkdToSgd: json.hkdToSgd });
   }, []);
 
   useEffect(() => {
@@ -140,8 +141,8 @@ export default function JournalPage() {
   );
 
   const stats = useMemo(
-    () => computeJournalStats(trades, quoteMap, usdToSgd),
-    [trades, quoteMap, usdToSgd],
+    () => computeJournalStats(trades, quoteMap, fx),
+    [trades, quoteMap, fx],
   );
 
   const filtered = useMemo(() => {
@@ -156,13 +157,14 @@ export default function JournalPage() {
   const filterLabel =
     JOURNAL_FILTER_OPTIONS.find((o) => o.key === filter)?.label ?? filter;
 
-  const filteredWithDividends = useMemo(
-    () => filtered.filter(tradeHasDividends),
+  const filteredSgStocks = useMemo(
+    () =>
+      filtered.filter((t) => t.category === "stocks" && t.market === "SG"),
     [filtered],
   );
 
-  const filteredStocks = useMemo(
-    () => filtered.filter((t) => t.category === "stocks"),
+  const filteredSgWithDividends = useMemo(
+    () => filtered.filter((t) => t.market === "SG" && tradeHasDividends(t)),
     [filtered],
   );
 
@@ -241,7 +243,9 @@ export default function JournalPage() {
               ? name
               : f.description,
         }));
-        setUsdToSgd(json.usdToSgd ?? usdToSgd);
+        if (json.usdToSgd && json.hkdToSgd) {
+          setFx({ usdToSgd: json.usdToSgd, hkdToSgd: json.hkdToSgd });
+        }
       } else {
         setMsg(json.error ?? "Ticker not found", "err");
       }
@@ -259,7 +263,7 @@ export default function JournalPage() {
     const resolvedMarket =
       form.market ?? (form.category === "stocks" ? null : "SG");
     if (form.category === "stocks" && !resolvedMarket) {
-      return "Tab out of the symbol field to detect SG vs US market.";
+      return "Tab out of the symbol field to detect SGX / HKEX / US market.";
     }
 
     const market = (resolvedMarket ?? "SG") as StockMarket;
@@ -347,23 +351,23 @@ export default function JournalPage() {
 
   async function fillFilteredDividends() {
     if (!data) return;
-    const targets = filteredStocks;
+    const targets = filteredSgStocks;
     if (targets.length === 0) {
-      setMsg(`No stock trades in “${filterLabel}”.`, "err");
+      setMsg(`No SG stock trades in “${filterLabel}”.`, "err");
       return;
     }
     const scope =
-      filter === "all"
-        ? `${targets.length} stock trade(s)`
-        : `${targets.length} stock trade(s) in “${filterLabel}”`;
+      filter === "all" || filter === "sg"
+        ? `${targets.length} SG stock trade(s)`
+        : `${targets.length} SG stock trade(s) in “${filterLabel}”`;
     const hasExisting = targets.some(tradeHasDividends);
     if (
       !window.confirm(
-        `Fill dividends from Yahoo for ${scope}?` +
+        `Fill SG dividends from Yahoo for ${scope}?` +
           (hasExisting
             ? " Existing dividend data on these trades will be replaced."
             : "") +
-          " US amounts are net after 30% withholding (div./share and total). Ex-dates in each holding window are summed — edit a trade if your broker differs.",
+          " US stocks are not changed (enter those manually). Ex-dates in each holding window are summed.",
       )
     ) {
       return;
@@ -398,9 +402,9 @@ export default function JournalPage() {
         return;
       }
       setMsg(
-        `Filled dividends on ${filled} trade(s)${filter === "all" ? "" : ` (${filterLabel})`}` +
+        `Filled SG dividends on ${filled} trade(s)${filter === "all" || filter === "sg" ? "" : ` (${filterLabel})`}` +
           (skipped > 0 ? ` · ${skipped} with no ex-dates in window` : "") +
-          ". US: net after 30% WHT.",
+          ".",
       );
     } catch {
       setMsg("Fill dividends failed.", "err");
@@ -411,18 +415,18 @@ export default function JournalPage() {
 
   async function clearFilteredDividends() {
     if (!data) return;
-    const targets = filteredWithDividends;
+    const targets = filteredSgWithDividends;
     if (targets.length === 0) {
-      setMsg(`No dividends on trades in “${filterLabel}”.`, "err");
+      setMsg(`No SG dividends in “${filterLabel}”.`, "err");
       return;
     }
     const scope =
-      filter === "all"
-        ? `all ${targets.length} trade(s) with dividends`
-        : `${targets.length} trade(s) in “${filterLabel}”`;
+      filter === "all" || filter === "sg"
+        ? `${targets.length} SG trade(s) with dividends`
+        : `${targets.length} SG trade(s) with dividends in “${filterLabel}”`;
     if (
       !window.confirm(
-        `Clear dividend data on ${scope}? Payments and dividend totals will be removed. This cannot be undone.`,
+        `Clear SG dividend data on ${scope}? US trades are not changed. This cannot be undone.`,
       )
     ) {
       return;
@@ -446,7 +450,7 @@ export default function JournalPage() {
     const ok = await saveData({ ...data, trades: nextTrades });
     if (ok) {
       setMsg(
-        `Cleared dividends on ${cleared} trade(s)${filter === "all" ? "" : ` (${filterLabel})`}.`,
+        `Cleared SG dividends on ${cleared} trade(s)${filter === "all" || filter === "sg" ? "" : ` (${filterLabel})`}.`,
       );
     }
   }
@@ -575,8 +579,8 @@ export default function JournalPage() {
           <h2 className="text-lg font-semibold text-primary">Trading journal</h2>
           <p className="text-sm text-secondary">
             Log each buy/sell once. Commission is in {currencyHint} per trade.
-            Stock dividends: use Fill / Clear for the current filter (US net after
-            30% WHT), or enter cash payments per trade. Open stocks sync to{" "}
+            US dividends: enter manually per trade. Fill / Clear applies to SG
+            stocks in the current filter. Open stocks sync to{" "}
             <Link href="/investments" className="text-accent hover:underline">
               Investments
             </Link>
@@ -754,34 +758,34 @@ export default function JournalPage() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={saving || filteredStocks.length === 0}
+            disabled={saving || filteredSgStocks.length === 0}
             onClick={() => void fillFilteredDividends()}
             className="rounded-lg border border-surface-border px-3 py-1.5 text-sm text-secondary hover:border-accent/40 hover:text-accent disabled:opacity-50"
             title={
-              filteredStocks.length === 0
-                ? "No stock trades in this view"
-                : "Yahoo ex-dates in holding window; US net after 30% WHT"
+              filteredSgStocks.length === 0
+                ? "No SG stock trades in this view"
+                : "Yahoo ex-dates in holding window (SG only)"
             }
           >
-            Fill dividends
-            {filter === "all" ? "" : ` (${filterLabel})`}
-            {filteredStocks.length > 0 ? ` · ${filteredStocks.length}` : ""}
+            Fill dividends (SG)
+            {filter === "all" ? "" : ` · ${filterLabel}`}
+            {filteredSgStocks.length > 0 ? ` · ${filteredSgStocks.length}` : ""}
           </button>
           <button
             type="button"
-            disabled={saving || filteredWithDividends.length === 0}
+            disabled={saving || filteredSgWithDividends.length === 0}
             onClick={() => void clearFilteredDividends()}
             className="rounded-lg border border-surface-border px-3 py-1.5 text-sm text-secondary hover:border-negative/40 hover:text-negative disabled:opacity-50"
             title={
-              filteredWithDividends.length === 0
-                ? "No dividends in this view"
-                : undefined
+              filteredSgWithDividends.length === 0
+                ? "No SG dividends in this view"
+                : "SG only; US dividends are manual"
             }
           >
-            Clear dividends
-            {filter === "all" ? "" : ` (${filterLabel})`}
-            {filteredWithDividends.length > 0
-              ? ` · ${filteredWithDividends.length}`
+            Clear dividends (SG)
+            {filter === "all" ? "" : ` · ${filterLabel}`}
+            {filteredSgWithDividends.length > 0
+              ? ` · ${filteredSgWithDividends.length}`
               : ""}
           </button>
         </div>
@@ -812,7 +816,7 @@ export default function JournalPage() {
                     ? quoteMap.get(`${t.market}:${t.symbol.toUpperCase()}`)
                     : undefined;
                 const mark = isTradeOpen(t) ? q?.price : t.exitPrice;
-                const pnl = tradePnlSgd(t, mark, usdToSgd);
+                const pnl = tradePnlSgd(t, mark, fx);
                 const comm = tradeTotalCommission(t);
                 const fmt = (n: number) => formatTradePrice(n, t.market);
                 const div = tradeDividendSummary(t);

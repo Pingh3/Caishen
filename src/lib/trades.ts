@@ -1,5 +1,7 @@
 import { formatCurrency, formatPercent } from "./finance";
 import type { Holding, QuoteResult, StockMarket, Trade, TradeCategory } from "./types";
+import type { FxRates } from "./market";
+import { fxForMarket } from "./market";
 
 export const TRADE_CATEGORY_LABELS: Record<TradeCategory, string> = {
   stocks: "Stocks",
@@ -12,11 +14,9 @@ export function isTradeOpen(trade: Trade): boolean {
   return !trade.exitDate;
 }
 
-/** Native currency → SGD multiplier (uses USD/HKD cross via usdToSgd). */
-export function tradeFxToSgd(trade: Trade, usdToSgd: number): number {
-  if (trade.market === "US") return usdToSgd;
-  if (trade.market === "HK") return usdToSgd / 7.8;
-  return 1;
+/** Native currency → SGD multiplier. */
+export function tradeFxToSgd(trade: Trade, fx: FxRates): number {
+  return fxForMarket(trade.market, fx);
 }
 
 export function tradeDaysHeld(trade: Trade, asOf = new Date()): number {
@@ -54,13 +54,13 @@ export function tradePnlNative(
 export function tradePnlSgd(
   trade: Trade,
   markPrice: number | undefined,
-  usdToSgd: number,
+  fx: FxRates,
 ): { pnlSgd: number; pnlPct: number | null } | null {
   const raw = tradePnlNative(trade, markPrice);
   if (!raw) return null;
-  const fx = tradeFxToSgd(trade, usdToSgd);
+  const rate = tradeFxToSgd(trade, fx);
   return {
-    pnlSgd: raw.pnl * fx,
+    pnlSgd: raw.pnl * rate,
     pnlPct: raw.pnlPct,
   };
 }
@@ -79,7 +79,7 @@ export type JournalStats = {
 export function computeJournalStats(
   trades: Trade[],
   quotes: Map<string, QuoteResult>,
-  usdToSgd: number,
+  fx: FxRates,
 ): JournalStats {
   let openCount = 0;
   let closedCount = 0;
@@ -89,8 +89,8 @@ export function computeJournalStats(
   const closedReturns: { won: boolean; pct: number }[] = [];
 
   for (const t of trades) {
-    const fx = tradeFxToSgd(t, usdToSgd);
-    const costSgd = tradeCostNative(t) * fx;
+    const rate = tradeFxToSgd(t, fx);
+    const costSgd = tradeCostNative(t) * rate;
 
     if (isTradeOpen(t)) {
       openCount++;
@@ -100,11 +100,11 @@ export function computeJournalStats(
           ? quotes.get(`${t.market}:${t.symbol.toUpperCase()}`)
           : undefined;
       const mark = t.exitPrice ?? q?.price;
-      const pnl = tradePnlSgd(t, mark, usdToSgd);
+      const pnl = tradePnlSgd(t, mark, fx);
       if (pnl) openUnrealizedSgd += pnl.pnlSgd;
     } else {
       closedCount++;
-      const pnl = tradePnlSgd(t, t.exitPrice, usdToSgd);
+      const pnl = tradePnlSgd(t, t.exitPrice, fx);
       if (pnl) {
         realizedPnlSgd += pnl.pnlSgd;
         if (pnl.pnlPct !== null) {

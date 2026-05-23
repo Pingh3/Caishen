@@ -13,7 +13,13 @@ import {
   formatPercent,
   formatTradePrice,
 } from "@/lib/finance";
-import { holdingPnl, holdingValueSgd, normalizeSymbol } from "@/lib/market";
+import {
+  defaultFxRates,
+  holdingPnl,
+  holdingValueSgd,
+  normalizeSymbol,
+  type FxRates,
+} from "@/lib/market";
 import type { FinanceData, Holding, QuoteResult, StockMarket } from "@/lib/types";
 
 function newId(): string {
@@ -28,7 +34,7 @@ function accountName(data: FinanceData, id?: string): string | null {
 export default function InvestmentsPage() {
   const [data, setData] = useState<FinanceData | null>(null);
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
-  const [usdToSgd, setUsdToSgd] = useState(1.35);
+  const [fx, setFx] = useState<FxRates>(defaultFxRates);
   const [loading, setLoading] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -57,9 +63,10 @@ export default function InvestmentsPage() {
       const json = (await res.json()) as {
         quotes: QuoteResult[];
         usdToSgd: number;
+        hkdToSgd: number;
       };
       setQuotes(json.quotes);
-      setUsdToSgd(json.usdToSgd);
+      setFx({ usdToSgd: json.usdToSgd, hkdToSgd: json.hkdToSgd });
       setLastRefresh(new Date());
     } finally {
       setLoading(false);
@@ -88,14 +95,16 @@ export default function InvestmentsPage() {
       }
       setMarket(json.market as StockMarket);
       setDetectedName(json.quote?.name ?? null);
-      setUsdToSgd(json.usdToSgd ?? usdToSgd);
+      if (json.usdToSgd && json.hkdToSgd) {
+        setFx({ usdToSgd: json.usdToSgd, hkdToSgd: json.hkdToSgd });
+      }
       setSymbol(normalizeSymbol(trimmed));
     } catch {
       setMessage("Could not detect market. Check your connection.");
     } finally {
       setDetecting(false);
     }
-  }, [usdToSgd]);
+  }, [fx]);
 
   useEffect(() => {
     fetch("/api/finance")
@@ -220,7 +229,7 @@ export default function InvestmentsPage() {
   let totalCost = 0;
   for (const h of holdings) {
     const q = quoteMap.get(`${h.market}:${h.symbol.toUpperCase()}`);
-    const { costSgd, valueSgd } = holdingPnl(h, q, usdToSgd);
+    const { costSgd, valueSgd } = holdingPnl(h, q, fx);
     totalCost += costSgd;
     totalValue += valueSgd;
   }
@@ -246,8 +255,8 @@ export default function InvestmentsPage() {
         <div>
           <h2 className="text-lg font-semibold text-primary">Live investments</h2>
           <p className="text-sm text-secondary">
-            Ticker auto-detects SGX vs US. P&amp;L in SGD at {usdToSgd.toFixed(4)}{" "}
-            USD/SGD. Log trades in{" "}
+            Ticker auto-detects SGX / HKEX / US. P&amp;L in SGD (USD{" "}
+            {fx.usdToSgd.toFixed(4)}, HKD {fx.hkdToSgd.toFixed(4)}). Log trades in{" "}
             <Link href="/journal" className="text-accent hover:underline">
               Journal
             </Link>{" "}
@@ -360,11 +369,7 @@ export default function InvestmentsPage() {
             <tbody>
               {holdings.map((h) => {
                 const q = quoteMap.get(`${h.market}:${h.symbol.toUpperCase()}`);
-                const { pnlSgd, pnlPercent, valueSgd } = holdingPnl(
-                  h,
-                  q,
-                  usdToSgd,
-                );
+                const { pnlSgd, pnlPercent, valueSgd } = holdingPnl(h, q, fx);
                 const ch = q?.changePercent;
                 const broker = data ? accountName(data, h.linkedAccountId) : null;
                 return (
@@ -389,16 +394,16 @@ export default function InvestmentsPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
                       {q ? (
-                        h.market === "US" ? (
+                        h.market === "SG" ? (
+                          formatTradePrice(q.price, "SG")
+                        ) : (
                           <>
-                            {formatTradePrice(q.price, "US")}
+                            {formatTradePrice(q.price, h.market)}
                             <br />
                             <span className="text-muted">
-                              {formatTradePrice(q.priceSgd, "SG")}
+                              {formatCurrency(q.priceSgd)}
                             </span>
                           </>
-                        ) : (
-                          formatTradePrice(q.price, h.market)
                         )
                       ) : (
                         "—"

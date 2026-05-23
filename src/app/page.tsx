@@ -21,7 +21,7 @@ import {
   retirementTotal,
   sortSnapshots,
 } from "@/lib/finance";
-import { fetchUsdToSgd } from "@/lib/market";
+import { fetchFxRates } from "@/lib/market";
 import { readFinanceData } from "@/lib/storage";
 import { buildProjections } from "@/lib/projection";
 import { computeJournalStats } from "@/lib/trades";
@@ -85,11 +85,11 @@ export default async function DashboardPage() {
   const momTone =
     delta > 0 ? "positive" : delta < 0 ? "negative" : ("default" as const);
 
-  const usdToSgd = await fetchUsdToSgd();
+  const fx = await fetchFxRates();
   const journalStats = computeJournalStats(
     data.trades ?? [],
     new Map(),
-    usdToSgd,
+    fx,
   );
 
   const projections = buildProjections(data, accounts);

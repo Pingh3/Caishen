@@ -115,9 +115,9 @@ export function TradeDividendEditor({
       <div>
         <p className="text-sm font-medium text-primary">Dividend payments</p>
         <p className="mt-1 text-xs text-secondary">
-          Enter cash from your broker statement (not Yahoo totals). US: gross
-          total is taxed at 30% to net. Example: 69 QCOM x $0.89 = $61.41 gross,
-          $42.99 net.
+          {market === "US"
+            ? "US: enter each cash payment from your broker. Gross is taxed at 30% to net (e.g. $61.41 gross → $42.99 net)."
+            : "Enter cash from your broker, or use Fill dividends (SG) on the journal for Yahoo."}
         </p>
       </div>
 
@@ -223,14 +223,16 @@ export function TradeDividendEditor({
         >
           Add payment
         </button>
-        <button
-          type="button"
-          disabled={loading}
-          onClick={loadYahooSuggestions}
-          className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-secondary hover:text-primary disabled:opacity-50"
-        >
-          {loading ? "Loading..." : "Load Yahoo hints (edit to match broker)"}
-        </button>
+        {market !== "US" ? (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={loadYahooSuggestions}
+            className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-secondary hover:text-primary disabled:opacity-50"
+          >
+            {loading ? "Loading..." : "Load Yahoo hints"}
+          </button>
+        ) : null}
       </div>
 
       {msg ? <p className="text-xs text-secondary">{msg}</p> : null}

@@ -4,7 +4,7 @@ import { readFinanceData, writeFinanceData } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
-/** Fill stock dividends from Yahoo for selected trades (US: net after 30% WHT). */
+/** Fill SG stock dividends from Yahoo for selected trades. */
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       filled,
       skipped,
       note:
-        "US totals are net after 30% withholding. Yahoo uses ex-dates in your holding window — edit trades to match broker cash.",
+        "SG stocks only. US dividends are manual. Yahoo uses ex-dates in your holding window.",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Fill dividends failed";
