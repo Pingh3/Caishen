@@ -6,10 +6,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { BrokerageQuickAdd } from "@/components/BrokerageQuickAdd";
+import { TradeDividendEditor } from "@/components/TradeDividendEditor";
 import { listBrokerageAccounts } from "@/lib/brokerages";
 import { loadFinanceData, persistFinanceData } from "@/lib/client-finance";
 import {
@@ -23,11 +23,11 @@ import {
   type JournalFilter,
 } from "@/lib/journal-filters";
 import {
-  US_DIVIDEND_WHT_RATE,
+  clearDividendsOnTrades,
   holdingPeriodLabel,
-  netDividendFromGross,
-  tradeDividendPerShare,
+  syncTradeDividendTotals,
   tradeDividendSummary,
+  tradeHasDividends,
 } from "@/lib/dividends";
 import { normalizeSymbol } from "@/lib/market";
 import {
@@ -40,6 +40,7 @@ import {
   tradeTotalCommission,
 } from "@/lib/trades";
 import type {
+  DividendPayment,
   FinanceData,
   QuoteResult,
   StockMarket,
@@ -91,7 +92,9 @@ export default function JournalPage() {
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
 
   const [form, setForm] = useState(emptyForm);
-  const dividendsAutoRan = useRef(false);
+  const [formDividendPayments, setFormDividendPayments] = useState<
+    DividendPayment[]
+  >([]);
 
   const trades = useMemo(() => data?.trades ?? [], [data?.trades]);
 
@@ -123,45 +126,6 @@ export default function JournalPage() {
     setUsdToSgd(json.usdToSgd);
   }, []);
 
-  const runDividendUpdate = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      if (!opts?.silent) setSaving(true);
-      try {
-        const res = await fetch("/api/journal/dividends", { method: "POST" });
-        const json = (await res.json()) as {
-          updated?: number;
-          usNetApplied?: number;
-          error?: string;
-        };
-        if (!res.ok) {
-          if (!opts?.silent) setMsg(json.error ?? "Dividend update failed", "err");
-          return;
-        }
-        const refreshed = await loadFinanceData();
-        setData(refreshed);
-        await refreshQuotes(refreshed.trades ?? []);
-        const n = json.updated ?? 0;
-        const us = json.usNetApplied ?? 0;
-        if (!opts?.silent || n > 0) {
-          setMsg(
-            n > 0
-              ? `Dividends updated for ${n} trade(s)` +
-                  (us > 0 ? ` - ${us} US with 30% WHT netted off` : "") +
-                  "."
-              : opts?.silent
-                ? ""
-                : "No dividend payments found in holding periods.",
-          );
-        }
-      } catch {
-        if (!opts?.silent) setMsg("Dividend update failed.", "err");
-      } finally {
-        if (!opts?.silent) setSaving(false);
-      }
-    },
-    [refreshQuotes],
-  );
-
   useEffect(() => {
     loadFinanceData()
       .then((json) => {
@@ -170,13 +134,6 @@ export default function JournalPage() {
       })
       .catch(() => setMsg("Could not load data.", "err"));
   }, [refreshQuotes]);
-
-  useEffect(() => {
-    if (!data?.trades?.length || dividendsAutoRan.current) return;
-    if (!data.trades.some((t) => t.category === "stocks")) return;
-    dividendsAutoRan.current = true;
-    void runDividendUpdate({ silent: true });
-  }, [data, runDividendUpdate]);
 
   const quoteMap = useMemo(
     () => new Map(quotes.map((q) => [`${q.market}:${q.symbol}`, q])),
@@ -197,6 +154,14 @@ export default function JournalPage() {
       .filter((t) => matchesJournalFilter(t, filter));
   }, [trades, filter]);
 
+  const filterLabel =
+    JOURNAL_FILTER_OPTIONS.find((o) => o.key === filter)?.label ?? filter;
+
+  const filteredWithDividends = useMemo(
+    () => filtered.filter(tradeHasDividends),
+    [filtered],
+  );
+
   async function saveData(next: FinanceData): Promise<boolean> {
     setSaving(true);
     const result = await persistFinanceData(next);
@@ -213,6 +178,7 @@ export default function JournalPage() {
   function clearForm() {
     setEditingId(null);
     setForm({ ...emptyForm, entryDate: new Date().toISOString().slice(0, 10) });
+    setFormDividendPayments([]);
   }
 
   function loadTradeToForm(t: Trade) {
@@ -235,22 +201,15 @@ export default function JournalPage() {
             : "",
       exitCommission:
         t.exitCommission !== undefined ? String(t.exitCommission) : "",
-      dividendIncome: (() => {
-        if (t.dividendGross !== undefined) return String(t.dividendGross);
-        if (t.dividendIncome === undefined) return "";
-        if (t.market === "US" && t.dividendsAutoUpdated) {
-          return String(
-            Math.round(
-              (t.dividendIncome / (1 - US_DIVIDEND_WHT_RATE)) * 100,
-            ) / 100,
-          );
-        }
-        return String(t.dividendIncome);
-      })(),
+      dividendIncome:
+        t.category !== "stocks" && t.dividendIncome !== undefined
+          ? String(t.dividendIncome)
+          : "",
       ideaSource: t.ideaSource ?? "",
       notes: t.notes ?? "",
       linkedAccountId: t.linkedAccountId ?? "",
     });
+    setFormDividendPayments(t.dividendPayments ?? []);
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 
@@ -300,19 +259,8 @@ export default function JournalPage() {
     }
 
     const market = (resolvedMarket ?? "SG") as StockMarket;
-    const dividendInput = parseNum(form.dividendIncome);
-    let dividendGross: number | undefined;
-    let dividendIncome: number | undefined;
-    if (dividendInput !== undefined) {
-      if (market === "US") {
-        dividendGross = dividendInput;
-        dividendIncome = netDividendFromGross("US", dividendInput);
-      } else {
-        dividendIncome = dividendInput;
-      }
-    }
 
-    return {
+    const base: Trade = {
       id,
       entryDate: form.entryDate,
       exitDate: form.exitDate.trim() || undefined,
@@ -328,11 +276,22 @@ export default function JournalPage() {
       exitPrice: parseNum(form.exitPrice),
       entryCommission: parseNum(form.entryCommission),
       exitCommission: parseNum(form.exitCommission),
-      dividendGross,
-      dividendIncome,
       linkedAccountId: form.linkedAccountId || undefined,
       ideaSource: form.ideaSource.trim() || undefined,
       notes: form.notes.trim() || undefined,
+    };
+
+    if (form.category === "stocks") {
+      return {
+        ...base,
+        ...syncTradeDividendTotals(base, formDividendPayments),
+      };
+    }
+
+    const dividendIncome = parseNum(form.dividendIncome);
+    return {
+      ...base,
+      dividendIncome,
     };
   }
 
@@ -379,6 +338,48 @@ export default function JournalPage() {
     if (ok) {
       setMsg(`Removed ${t.symbol}.`);
       if (editingId === t.id) clearForm();
+    }
+  }
+
+  async function clearFilteredDividends() {
+    if (!data) return;
+    const targets = filteredWithDividends;
+    if (targets.length === 0) {
+      setMsg(`No dividends on trades in “${filterLabel}”.`, "err");
+      return;
+    }
+    const scope =
+      filter === "all"
+        ? `all ${targets.length} trade(s) with dividends`
+        : `${targets.length} trade(s) in “${filterLabel}”`;
+    if (
+      !window.confirm(
+        `Clear dividend data on ${scope}? Payments and dividend totals will be removed. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    const ids = new Set(targets.map((t) => t.id));
+    const { trades: nextTrades, cleared } = clearDividendsOnTrades(
+      trades,
+      ids,
+    );
+    if (cleared === 0) {
+      setMsg("Nothing to clear.", "err");
+      return;
+    }
+
+    if (editingId && ids.has(editingId)) {
+      setFormDividendPayments([]);
+      setForm((f) => ({ ...f, dividendIncome: "" }));
+    }
+
+    const ok = await saveData({ ...data, trades: nextTrades });
+    if (ok) {
+      setMsg(
+        `Cleared dividends on ${cleared} trade(s)${filter === "all" ? "" : ` (${filterLabel})`}.`,
+      );
     }
   }
 
@@ -482,10 +483,6 @@ export default function JournalPage() {
     }
   }
 
-  function refreshDividends() {
-    void runDividendUpdate();
-  }
-
   const brokerageAccounts = data
     ? listBrokerageAccounts(data.accounts)
     : [];
@@ -510,8 +507,8 @@ export default function JournalPage() {
           <h2 className="text-lg font-semibold text-primary">Trading journal</h2>
           <p className="text-sm text-secondary">
             Log each buy/sell once. Commission is in {currencyHint} per trade.
-            US stock dividends auto-fill as net (30% WHT off) from Yahoo when you
-            open this page. Open stocks sync to{" "}
+            Stock dividends: enter each cash payment from your broker (Yahoo is
+            hints only). Open stocks sync to{" "}
             <Link href="/investments" className="text-accent hover:underline">
               Investments
             </Link>
@@ -526,14 +523,6 @@ export default function JournalPage() {
             className="rounded-lg border border-surface-border px-3 py-2 text-sm text-secondary hover:text-primary disabled:opacity-50"
           >
             Fill descriptions
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={refreshDividends}
-            className="rounded-lg border border-surface-border px-3 py-2 text-sm text-secondary hover:text-primary disabled:opacity-50"
-          >
-            Update dividends
           </button>
           <button
             type="button"
@@ -677,21 +666,40 @@ export default function JournalPage() {
         </div>
       </section>
 
-      <div className="flex flex-wrap gap-2">
-        {JOURNAL_FILTER_OPTIONS.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setFilter(key)}
-            className={`rounded-lg px-3 py-1.5 text-sm ${
-              filter === key
-                ? "bg-accent/15 text-accent"
-                : "text-secondary hover:text-primary"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {JOURNAL_FILTER_OPTIONS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              className={`rounded-lg px-3 py-1.5 text-sm ${
+                filter === key
+                  ? "bg-accent/15 text-accent"
+                  : "text-secondary hover:text-primary"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          disabled={saving || filteredWithDividends.length === 0}
+          onClick={() => void clearFilteredDividends()}
+          className="rounded-lg border border-surface-border px-3 py-1.5 text-sm text-secondary hover:border-negative/40 hover:text-negative disabled:opacity-50"
+          title={
+            filteredWithDividends.length === 0
+              ? "No dividends in this view"
+              : undefined
+          }
+        >
+          Clear dividends
+          {filter === "all" ? "" : ` (${filterLabel})`}
+          {filteredWithDividends.length > 0
+            ? ` · ${filteredWithDividends.length}`
+            : ""}
+        </button>
       </div>
 
       {filtered.length > 0 ? (
@@ -784,21 +792,15 @@ export default function JournalPage() {
                             </span>
                           ) : null}
                           {div.payments.length > 0 ? (
-                            <span className="block max-w-[160px] text-[10px] text-muted">
-                              {div.payments.length} ex-date
+                            <span className="block max-w-[180px] text-[10px] text-muted">
                               {div.payments.length === 1
-                                ? `: ${div.payments[0].date}`
-                                : `s: ${div.payments[0].date} - ${div.payments[div.payments.length - 1].date}`}
+                                ? `paid ${div.payments[0].paymentDate}`
+                                : `${div.payments.length} payments: ${div.payments[0].paymentDate} – ${div.payments[div.payments.length - 1].paymentDate}`}
                             </span>
                           ) : null}
                           <span className="block text-[10px] text-muted">
                             {holdingPeriodLabel(t)}
                           </span>
-                          {t.dividendsAutoUpdated ? (
-                            <span className="block text-[10px] text-muted">
-                              auto
-                            </span>
-                          ) : null}
                         </>
                       ) : (
                         "-"
@@ -1037,48 +1039,34 @@ export default function JournalPage() {
               }
             />
           </label>
-          <label className="block text-sm">
-            <span className="text-secondary">
-              {form.market === "US"
-                ? `Dividends gross total (${currencyHint}, optional)`
-                : `Dividends total (${currencyHint}, optional)`}
-            </span>
-            <input
-              className="mt-1 w-full font-mono"
-              placeholder={form.market === "US" ? "e.g. 100 → saves $70 net" : undefined}
-              value={form.dividendIncome}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, dividendIncome: e.target.value }))
-              }
-            />
-            {form.market === "US" && form.dividendIncome.trim() ? (
-              <p className="mt-1 text-[10px] text-positive">
-                Net total:{" "}
-                {formatTradePrice(
-                  netDividendFromGross(
-                    "US",
-                    Number(form.dividendIncome.replace(/,/g, "")) || 0,
-                  ),
-                  "US",
-                )}
-                {form.quantity.trim()
-                  ? ` · ${formatTradePrice(
-                      netDividendFromGross(
-                        "US",
-                        Number(form.dividendIncome.replace(/,/g, "")) || 0,
-                      ) / (Number(form.quantity.replace(/,/g, "")) || 1),
-                      "US",
-                    )}/share`
-                  : null}
-              </p>
-            ) : null}
-            <p className="mt-1 text-[10px] text-muted">
-              {form.market === "US"
-                ? "US: enter gross total; 30% WHT is deducted automatically. Leave blank to auto-fill from Yahoo."
-                : "Leave blank to auto-fill from Yahoo on page load."}
-            </p>
-          </label>
+          {form.category !== "stocks" ? (
+            <label className="block text-sm">
+              <span className="text-secondary">
+                Dividends total ({currencyHint}, optional)
+              </span>
+              <input
+                className="mt-1 w-full font-mono"
+                value={form.dividendIncome}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, dividendIncome: e.target.value }))
+                }
+              />
+            </label>
+          ) : null}
         </div>
+
+        {form.category === "stocks" && form.market ? (
+          <TradeDividendEditor
+            market={form.market}
+            quantity={Number(form.quantity.replace(/,/g, "")) || 0}
+            entryDate={form.entryDate}
+            exitDate={form.exitDate}
+            symbol={form.symbol}
+            category={form.category}
+            payments={formDividendPayments}
+            onChange={setFormDividendPayments}
+          />
+        ) : null}
 
         <label className="block text-sm">
           <span className="text-secondary">Brokerage</span>

@@ -1,6 +1,7 @@
-import type { StockMarket, Trade } from "./types";
+import type { DividendPayment, StockMarket, Trade } from "./types";
 import { normalizeSymbol } from "./market";
 
+/** US dividend withholding for non-US tax residents (e.g. via broker). */
 export const US_DIVIDEND_WHT_RATE = 0.3;
 
 export function netDividendFromGross(
@@ -14,40 +15,9 @@ export function netDividendFromGross(
   return Math.round(net * 100) / 100;
 }
 
-export function tradeDividendPerShare(
-  trade: Trade,
-  which: "net" | "gross" = "net",
-): number | null {
-  if (trade.quantity <= 0) return null;
-  const total =
-    which === "gross"
-      ? trade.dividendGross ??
-        (trade.market === "US" ? undefined : trade.dividendIncome)
-      : trade.dividendIncome;
-  if (total === undefined) return null;
-  return Math.round((total / trade.quantity) * 10000) / 10000;
+export function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
 }
-
-export type DividendPaymentRecord = {
-  date: string;
-  amountPerShare: number;
-};
-
-export type DividendFetchResult = {
-  perShareGross: number;
-  grossTotal: number;
-  payments: DividendPaymentRecord[];
-};
-
-type YahooDivEvent = {
-  chart?: {
-    result?: {
-      events?: {
-        dividends?: Record<string, { amount: number; date: number }>;
-      };
-    }[];
-  };
-};
 
 function yahooSymbol(symbol: string, market: StockMarket): string {
   const base = normalizeSymbol(symbol);
@@ -67,15 +37,13 @@ export function tradeDateUnix(
   return Math.floor(Date.UTC(y, m - 1, d, 23, 59, 59) / 1000);
 }
 
-function exDateIso(unixSec: number): string {
-  return new Date(unixSec * 1000).toISOString().slice(0, 10);
-}
-
-export function isExDateInHoldingPeriod(
-  exUnix: number,
+/** Must have held shares on the ex-dividend date. */
+export function isEligibleForExDate(
+  exDate: string,
   entryDate: string,
   exitDate?: string,
 ): boolean {
+  const exUnix = tradeDateUnix(exDate, "start");
   const entryStart = tradeDateUnix(entryDate, "start");
   const exitEnd = exitDate
     ? tradeDateUnix(exitDate, "end")
@@ -83,14 +51,131 @@ export function isExDateInHoldingPeriod(
   return exUnix >= entryStart && exUnix <= exitEnd;
 }
 
-export function holdingPeriodLabel(trade: Trade): string {
-  return `${trade.entryDate} -> ${trade.exitDate ?? "today"}`;
+export function newDividendPaymentId(): string {
+  return `div-${Date.now().toString(36)}`;
 }
 
-export async function fetchDividendsForTrade(
+/** Build one payment from broker gross total (preferred) or gross per share. */
+export function buildDividendPayment(
+  trade: Pick<Trade, "market" | "quantity">,
+  input: {
+    paymentDate: string;
+    exDate?: string;
+    grossTotal?: number;
+    grossPerShare?: number;
+    source?: DividendPayment["source"];
+  },
+): DividendPayment | string {
+  if (!input.paymentDate.trim()) return "Payment date is required.";
+  if (trade.quantity <= 0) return "Quantity must be greater than zero.";
+
+  let grossTotal: number;
+  let grossPerShare: number;
+
+  if (input.grossTotal !== undefined && input.grossTotal > 0) {
+    grossTotal = roundMoney(input.grossTotal);
+    grossPerShare = roundMoney(grossTotal / trade.quantity);
+  } else if (input.grossPerShare !== undefined && input.grossPerShare > 0) {
+    grossPerShare = roundMoney(input.grossPerShare);
+    grossTotal = roundMoney(grossPerShare * trade.quantity);
+  } else {
+    return "Enter gross total or gross per share from your broker.";
+  }
+
+  const netTotal = netDividendFromGross(trade.market, grossTotal);
+
+  return {
+    id: newDividendPaymentId(),
+    paymentDate: input.paymentDate.trim(),
+    exDate: input.exDate?.trim() || undefined,
+    grossPerShare,
+    grossTotal,
+    netTotal,
+    source: input.source ?? "manual",
+  };
+}
+
+export function syncTradeDividendTotals(
   trade: Trade,
-): Promise<DividendFetchResult | null> {
-  if (trade.category !== "stocks") return null;
+  payments: DividendPayment[],
+): Pick<Trade, "dividendPayments" | "dividendIncome" | "dividendGross"> {
+  if (payments.length === 0) {
+    return {
+      dividendPayments: [],
+      dividendIncome: undefined,
+      dividendGross: undefined,
+    };
+  }
+
+  const grossTotal = roundMoney(
+    payments.reduce((s, p) => s + p.grossTotal, 0),
+  );
+  const netTotal = roundMoney(payments.reduce((s, p) => s + p.netTotal, 0));
+
+  return {
+    dividendPayments: payments,
+    dividendIncome: netTotal,
+    dividendGross: trade.market === "US" ? grossTotal : undefined,
+  };
+}
+
+export type TradeDividendSummary = {
+  netTotal: number;
+  grossTotal?: number;
+  perShareNet: number;
+  perShareGross?: number;
+  payments: DividendPayment[];
+};
+
+export function tradeDividendSummary(trade: Trade): TradeDividendSummary | null {
+  const payments = trade.dividendPayments ?? [];
+  if (payments.length > 0) {
+    const netTotal = roundMoney(payments.reduce((s, p) => s + p.netTotal, 0));
+    const grossTotal = roundMoney(
+      payments.reduce((s, p) => s + p.grossTotal, 0),
+    );
+    return {
+      netTotal,
+      grossTotal: trade.market === "US" ? grossTotal : undefined,
+      perShareNet: roundMoney(netTotal / trade.quantity),
+      perShareGross:
+        trade.market === "US"
+          ? roundMoney(grossTotal / trade.quantity)
+          : undefined,
+      payments,
+    };
+  }
+
+  if (trade.dividendIncome === undefined) return null;
+  const netTotal = trade.dividendIncome;
+  const grossTotal = trade.dividendGross;
+  return {
+    netTotal,
+    grossTotal,
+    perShareNet: roundMoney(netTotal / trade.quantity),
+    perShareGross:
+      grossTotal !== undefined
+        ? roundMoney(grossTotal / trade.quantity)
+        : undefined,
+    payments: [],
+  };
+}
+
+type YahooDivEvent = {
+  chart?: {
+    result?: {
+      events?: {
+        dividends?: Record<string, { amount: number; date: number }>;
+      };
+    }[];
+  };
+};
+
+/** Yahoo ex-dates only — verify cash date and amount against your broker. */
+export async function suggestDividendsFromYahoo(
+  trade: Trade,
+): Promise<DividendPayment[]> {
+  if (trade.category !== "stocks") return [];
 
   const ySym = yahooSymbol(trade.symbol, trade.market);
 
@@ -103,125 +188,75 @@ export async function fetchDividendsForTrade(
       headers: { "User-Agent": "Mozilla/5.0" },
       next: { revalidate: 3600 },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return [];
 
     const json = (await res.json()) as YahooDivEvent;
     const events = json.chart?.result?.[0]?.events?.dividends ?? {};
-    const payments: DividendPaymentRecord[] = [];
+    const suggested: DividendPayment[] = [];
 
     for (const ev of Object.values(events)) {
-      if (
-        !isExDateInHoldingPeriod(ev.date, trade.entryDate, trade.exitDate)
-      ) {
+      const exDate = new Date(ev.date * 1000).toISOString().slice(0, 10);
+      if (!isEligibleForExDate(exDate, trade.entryDate, trade.exitDate)) {
         continue;
       }
-      payments.push({
-        date: exDateIso(ev.date),
-        amountPerShare: ev.amount,
+
+      const grossPerShare = roundMoney(ev.amount);
+      const grossTotal = roundMoney(grossPerShare * trade.quantity);
+      const netTotal = netDividendFromGross(trade.market, grossTotal);
+
+      suggested.push({
+        id: newDividendPaymentId(),
+        paymentDate: exDate,
+        exDate,
+        grossPerShare,
+        grossTotal,
+        netTotal,
+        source: "yahoo",
       });
     }
 
-    payments.sort((a, b) => a.date.localeCompare(b.date));
-
-    const perShareGross = payments.reduce(
-      (s, p) => s + p.amountPerShare,
-      0,
-    );
-
-    return {
-      perShareGross,
-      grossTotal: perShareGross * trade.quantity,
-      payments,
-    };
+    suggested.sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
+    return suggested;
   } catch {
-    return null;
+    return [];
   }
 }
 
-export type DividendApplyResult = {
-  trades: Trade[];
-  updated: number;
-  usNetApplied: number;
-};
+export function holdingPeriodLabel(trade: Trade): string {
+  return `${trade.entryDate} to ${trade.exitDate ?? "today"}`;
+}
 
+export function tradeHasDividends(trade: Trade): boolean {
+  if ((trade.dividendPayments?.length ?? 0) > 0) return true;
+  return trade.dividendIncome !== undefined;
+}
+
+/** Remove all dividend fields from a trade. */
+export function clearTradeDividends(trade: Trade): Trade {
+  const next = { ...trade };
+  delete next.dividendIncome;
+  delete next.dividendGross;
+  delete next.dividendPayments;
+  delete next.dividendsAutoUpdated;
+  return next;
+}
+
+export function clearDividendsOnTrades(
+  trades: Trade[],
+  tradeIds: Set<string>,
+): { trades: Trade[]; cleared: number } {
+  let cleared = 0;
+  const next = trades.map((t) => {
+    if (!tradeIds.has(t.id) || !tradeHasDividends(t)) return t;
+    cleared += 1;
+    return clearTradeDividends(t);
+  });
+  return { trades: next, cleared };
+}
+
+/** @deprecated Bulk auto-fill removed — use suggest + manual broker amounts. */
 export async function applyDividendsToTrades(
   trades: Trade[],
-): Promise<DividendApplyResult> {
-  const next = [...trades];
-  let updated = 0;
-  let usNetApplied = 0;
-  const today = new Date().toISOString().slice(0, 10);
-
-  const stockIndexes = next
-    .map((t, i) => (t.category === "stocks" ? i : -1))
-    .filter((i) => i >= 0);
-
-  await Promise.all(
-    stockIndexes.map(async (i) => {
-      const t = next[i];
-      const result = await fetchDividendsForTrade(t);
-      if (result === null || result.payments.length === 0) return;
-
-      const grossTotal = Math.round(result.grossTotal * 100) / 100;
-      const netTotal = netDividendFromGross(t.market, grossTotal);
-
-      next[i] = {
-        ...t,
-        dividendGross: t.market === "US" ? grossTotal : undefined,
-        dividendIncome: netTotal,
-        dividendPayments: result.payments,
-        dividendsAutoUpdated: today,
-      };
-      updated += 1;
-      if (t.market === "US") usNetApplied += 1;
-    }),
-  );
-
-  return { trades: next, updated, usNetApplied };
-}
-
-export type TradeDividendSummary = {
-  netTotal: number;
-  grossTotal?: number;
-  perShareNet: number;
-  perShareGross?: number;
-  payments: DividendPaymentRecord[];
-};
-
-export function tradeDividendSummary(trade: Trade): TradeDividendSummary | null {
-  if (trade.quantity <= 0) return null;
-
-  if (trade.dividendPayments && trade.dividendPayments.length > 0) {
-    const perShareGross = trade.dividendPayments.reduce(
-      (sum, p) => sum + p.amountPerShare,
-      0,
-    );
-    const grossTotal = Math.round(perShareGross * trade.quantity * 100) / 100;
-    const netTotal = netDividendFromGross(trade.market, grossTotal);
-    return {
-      netTotal,
-      grossTotal: trade.market === "US" ? grossTotal : undefined,
-      perShareNet: Math.round((netTotal / trade.quantity) * 10000) / 10000,
-      perShareGross:
-        trade.market === "US"
-          ? Math.round(perShareGross * 10000) / 10000
-          : undefined,
-      payments: trade.dividendPayments,
-    };
-  }
-
-  if (trade.dividendIncome === undefined) return null;
-
-  const netTotal = trade.dividendIncome;
-  const grossTotal = trade.dividendGross;
-  return {
-    netTotal,
-    grossTotal,
-    perShareNet: Math.round((netTotal / trade.quantity) * 10000) / 10000,
-    perShareGross:
-      grossTotal !== undefined
-        ? Math.round((grossTotal / trade.quantity) * 10000) / 10000
-        : undefined,
-    payments: [],
-  };
+): Promise<{ trades: Trade[]; updated: number; usNetApplied: number }> {
+  return { trades, updated: 0, usNetApplied: 0 };
 }

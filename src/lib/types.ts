@@ -90,6 +90,18 @@ export type PropertyProfile = {
 
 export type TradeCategory = "stocks" | "govt" | "robo" | "other";
 
+export type DividendPayment = {
+  id: string;
+  /** Cash received (from broker statement) */
+  paymentDate: string;
+  /** Ex-dividend date if known (Yahoo uses this) */
+  exDate?: string;
+  grossPerShare: number;
+  grossTotal: number;
+  netTotal: number;
+  source: "manual" | "yahoo";
+};
+
 export type Trade = {
   id: string;
   entryDate: string;
@@ -109,13 +121,13 @@ export type Trade = {
   entryCommission?: number;
   /** Broker commission on sell (native currency) */
   exitCommission?: number;
-  /** Total net cash received (US: after 30% WHT). */
+  /** Total net cash received (US: after 30% WHT). Sum of dividendPayments. */
   dividendIncome?: number;
-  /** Total gross before WHT (US only). */
+  /** Total gross before WHT (US only). Sum of dividendPayments. */
   dividendGross?: number;
-  /** Ex-dates and per-share gross amounts in the holding window */
-  dividendPayments?: { date: string; amountPerShare: number }[];
-  /** Last date dividends were fetched from Yahoo */
+  /** Cash dividends — enter from broker; do not rely on Yahoo alone. */
+  dividendPayments?: DividendPayment[];
+  /** @deprecated */
   dividendsAutoUpdated?: string;
   linkedAccountId?: string;
   ideaSource?: string;
