@@ -15,6 +15,7 @@ import {
   monthOverMonthChange,
   previousSnapshot,
   insuranceTotal,
+  personalLoansTotal,
   snapshotLiquidNetWorth,
   snapshotNetWorth,
   retirementTotal,
@@ -50,14 +51,16 @@ export default async function DashboardPage() {
   }
 
   const policies = data.insurancePolicies;
-  const netWorth = snapshotNetWorth(latest, accounts, policies);
-  const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies);
+  const loans = data.personalLoans;
+  const netWorth = snapshotNetWorth(latest, accounts, policies, loans);
+  const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies, loans);
   const cpfSrs = retirementTotal(latest, accounts);
   const insTotal = insuranceTotal(policies);
+  const loansTotal = personalLoansTotal(loans);
   const prev = previousSnapshot(data, latest);
-  const prevNw = prev ? snapshotNetWorth(prev, accounts, policies) : null;
+  const prevNw = prev ? snapshotNetWorth(prev, accounts, policies, loans) : null;
   const prevLiquid = prev
-    ? snapshotLiquidNetWorth(prev, accounts, policies)
+    ? snapshotLiquidNetWorth(prev, accounts, policies, loans)
     : null;
   const { delta, percent } = monthOverMonthChange(netWorth, prevNw);
   const liquidDelta = monthOverMonthChange(liquidNw, prevLiquid);
@@ -75,8 +78,8 @@ export default async function DashboardPage() {
       month: "short",
       year: "2-digit",
     }),
-    netWorth: snapshotNetWorth(s, accounts, policies),
-    liquidNetWorth: snapshotLiquidNetWorth(s, accounts, policies),
+    netWorth: snapshotNetWorth(s, accounts, policies, loans),
+    liquidNetWorth: snapshotLiquidNetWorth(s, accounts, policies, loans),
   }));
 
   const momTone =
@@ -131,7 +134,16 @@ export default async function DashboardPage() {
           value={formatCurrency(insTotal)}
           sub={
             <Link href="/insurance" className="text-accent hover:underline">
-              Manage policies →
+              Manage policies
+            </Link>
+          }
+        />
+        <StatCard
+          label="Loans to others"
+          value={formatCurrency(loansTotal)}
+          sub={
+            <Link href="/loans" className="text-accent hover:underline">
+              Manage loans
             </Link>
           }
         />

@@ -54,7 +54,12 @@ export function buildProjections(
   const latest = latestSnapshot(data);
   if (!latest) return null;
 
-  const start = snapshotNetWorth(latest, accounts, data.insurancePolicies);
+  const start = snapshotNetWorth(
+    latest,
+    accounts,
+    data.insurancePolicies,
+    data.personalLoans,
+  );
   const returnPct = data.settings?.projectionReturnPct ?? 5;
   const horizons = [1, 3, 5, 10, 20];
 

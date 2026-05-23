@@ -5,6 +5,7 @@ import type {
   FinanceData,
   Insight,
   InsurancePolicy,
+  PersonalLoan,
   Snapshot,
 } from "./types";
 
@@ -105,6 +106,12 @@ export function insuranceTotal(policies: InsurancePolicy[] | undefined): number 
     .reduce((sum, p) => sum + (p.surrenderValue ?? 0), 0);
 }
 
+export function personalLoansTotal(loans: PersonalLoan[] | undefined): number {
+  return (loans ?? [])
+    .filter((l) => !l.archived)
+    .reduce((sum, l) => sum + (l.principalOutstanding ?? 0), 0);
+}
+
 function accountBalanceSum(
   snapshot: Snapshot,
   accounts: Account[],
@@ -125,10 +132,12 @@ export function snapshotNetWorth(
   snapshot: Snapshot,
   accounts: Account[],
   insurancePolicies?: InsurancePolicy[],
+  personalLoans?: PersonalLoan[],
 ): number {
   return (
     accountBalanceSum(snapshot, accounts) +
-    insuranceTotal(insurancePolicies)
+    insuranceTotal(insurancePolicies) +
+    personalLoansTotal(personalLoans)
   );
 }
 
@@ -137,10 +146,12 @@ export function snapshotLiquidNetWorth(
   snapshot: Snapshot,
   accounts: Account[],
   insurancePolicies?: InsurancePolicy[],
+  personalLoans?: PersonalLoan[],
 ): number {
   return (
     accountBalanceSum(snapshot, accounts, ["retirement"]) +
-    insuranceTotal(insurancePolicies)
+    insuranceTotal(insurancePolicies) +
+    personalLoansTotal(personalLoans)
   );
 }
 
@@ -299,10 +310,11 @@ export function generateInsights(data: FinanceData): Insight[] {
   const accounts = data.accounts.filter((a) => !a.archived);
   const totals = categoryTotals(latest, accounts);
   const policies = data.insurancePolicies;
-  const netWorth = snapshotNetWorth(latest, accounts, policies);
-  const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies);
+  const loans = data.personalLoans;
+  const netWorth = snapshotNetWorth(latest, accounts, policies, loans);
+  const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies, loans);
   const prev = previousSnapshot(data, latest);
-  const prevNw = prev ? snapshotNetWorth(prev, accounts, policies) : null;
+  const prevNw = prev ? snapshotNetWorth(prev, accounts, policies, loans) : null;
   const { percent: momPct } = monthOverMonthChange(netWorth, prevNw);
 
   const retTotal = retirementTotal(latest, accounts);

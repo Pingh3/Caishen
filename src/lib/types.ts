@@ -14,6 +14,18 @@ export type InsurancePolicyType =
   | "hospitalisation"
   | "other";
 
+export type PersonalLoan = {
+  id: string;
+  borrowerName: string;
+  /** Outstanding principal owed to you (SGD) */
+  principalOutstanding: number;
+  interestRatePct?: number;
+  loanDate?: string;
+  expectedRepaymentDate?: string;
+  notes?: string;
+  archived?: boolean;
+};
+
 export type InsurancePolicy = {
   id: string;
   insurer: string;
@@ -101,7 +113,7 @@ export type Trade = {
   dividendIncome?: number;
   /** Total gross before WHT (US only). */
   dividendGross?: number;
-  /** Ex-dates and per-share amounts in the holding window */
+  /** Ex-dates and per-share gross amounts in the holding window */
   dividendPayments?: { date: string; amountPerShare: number }[];
   /** Last date dividends were fetched from Yahoo */
   dividendsAutoUpdated?: string;
@@ -116,6 +128,7 @@ export type FinanceData = {
   holdings?: Holding[];
   trades?: Trade[];
   insurancePolicies?: InsurancePolicy[];
+  personalLoans?: PersonalLoan[];
   property?: PropertyProfile;
   allocationTargets?: Partial<Record<AccountCategory, number>>;
   settings?: {
