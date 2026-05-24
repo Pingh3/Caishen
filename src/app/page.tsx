@@ -110,7 +110,7 @@ export default async function DashboardPage() {
         <StatCard
           label="Liquid net worth"
           value={formatCurrency(liquidNw)}
-          sub={`Excludes CPF & SRS (${formatCurrency(cpfSrs)})`}
+          sub={`Excludes CPF/SRS (${formatCurrency(cpfSrs)}), property & HDB loan`}
           tone="default"
         />
         <StatCard

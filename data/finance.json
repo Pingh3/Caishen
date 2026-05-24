@@ -11,8 +11,10 @@
     { "id": "webull", "name": "Webull", "category": "investments", "notes": "US stocks & options" },
     { "id": "syfe", "name": "Syfe", "category": "investments", "notes": "Robo portfolios" },
     { "id": "endowus", "name": "Endowus", "category": "investments", "notes": "Funds" },
+    { "id": "market-funds", "name": "Market Funds", "category": "investments", "notes": "Funds / ETFs (manual)" },
     { "id": "property", "name": "Property equity", "category": "property" },
     { "id": "mortgage", "name": "HDB / Bank loan", "category": "liability", "isLiability": true },
+    { "id": "car-loan", "name": "Car loan", "category": "liability", "isLiability": true },
     { "id": "cc", "name": "Credit cards", "category": "liability", "isLiability": true }
   ],
   "holdings": [],

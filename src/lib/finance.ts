@@ -27,7 +27,9 @@ export const SG_ACCOUNT_PRESETS = [
   { name: "CPF MediSave", category: "retirement" as const, notes: "Illiquid" },
   { name: "SRS", category: "retirement" as const },
   { name: "Property equity", category: "property" as const },
+  { name: "Market Funds", category: "investments" as const, notes: "Funds / ETFs (manual)" },
   { name: "Mortgage / HDB loan", category: "liability" as const, isLiability: true },
+  { name: "Car loan", category: "liability" as const, isLiability: true },
   { name: "Credit card", category: "liability" as const, isLiability: true },
 ];
 
@@ -116,6 +118,7 @@ function accountBalanceSum(
   snapshot: Snapshot,
   accounts: Account[],
   excludeCategories?: AccountCategory[],
+  includeAccount?: (account: Account) => boolean,
 ): number {
   const exclude = new Set(excludeCategories ?? []);
   const byId = new Map(accounts.map((a) => [a.id, a]));
@@ -123,8 +126,33 @@ function accountBalanceSum(
     const account = byId.get(id);
     if (!account || account.archived) return sum;
     if (exclude.has(account.category)) return sum;
+    if (includeAccount && !includeAccount(account)) return sum;
     return sum + signedBalance(account, raw);
   }, 0);
+}
+
+/** Accounts excluded from liquid net worth (illiquid / tied to property). */
+export function isLiquidSnapshotAccount(account: Account): boolean {
+  if (account.category === "retirement" || account.category === "property") {
+    return false;
+  }
+  if (account.category === "liability") {
+    const n = account.name.toLowerCase();
+    if (
+      /mortgage|hdb|bank loan|housing loan|home loan/.test(n) &&
+      !/car/.test(n)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function liquidAccountBalanceSum(
+  snapshot: Snapshot,
+  accounts: Account[],
+): number {
+  return accountBalanceSum(snapshot, accounts, [], isLiquidSnapshotAccount);
 }
 
 /** Full net worth including insurance surrender values. */
@@ -141,7 +169,7 @@ export function snapshotNetWorth(
   );
 }
 
-/** Net worth excluding CPF, SRS, and other retirement-category accounts. */
+/** Net worth excluding CPF/SRS, property equity, and property-linked loans. */
 export function snapshotLiquidNetWorth(
   snapshot: Snapshot,
   accounts: Account[],
@@ -149,7 +177,7 @@ export function snapshotLiquidNetWorth(
   personalLoans?: PersonalLoan[],
 ): number {
   return (
-    accountBalanceSum(snapshot, accounts, ["retirement"]) +
+    liquidAccountBalanceSum(snapshot, accounts) +
     insuranceTotal(insurancePolicies) +
     personalLoansTotal(personalLoans)
   );
@@ -323,7 +351,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "liquid-nw",
       severity: "info",
       title: "Liquid vs total net worth",
-      body: `Liquid net worth is ${formatCurrency(liquidNw)} (${((liquidNw / netWorth) * 100).toFixed(0)}% of total). ${formatCurrency(retTotal)} sits in CPF & SRS, which are excluded from liquid figures.`,
+      body: `Liquid net worth is ${formatCurrency(liquidNw)} (${((liquidNw / netWorth) * 100).toFixed(0)}% of total). Excludes CPF & SRS, property equity, and HDB/mortgage loans; includes insurance surrender values and personal loans receivable.`,
     });
   }
 
