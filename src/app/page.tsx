@@ -1,7 +1,8 @@
 import { AllocationChart } from "@/components/AllocationChart";
+import { DashboardStats } from "@/components/DashboardStats";
 import { InsightsPanel } from "@/components/InsightsPanel";
 import { NetWorthChart } from "@/components/NetWorthChart";
-import { StatCard } from "@/components/StatCard";
+import { buildAllDashboardBreakdowns } from "@/lib/dashboard-breakdown";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
@@ -85,6 +86,8 @@ export default async function DashboardPage() {
   const momTone =
     delta > 0 ? "positive" : delta < 0 ? "negative" : ("default" as const);
 
+  const breakdowns = buildAllDashboardBreakdowns(data, latest, prev, accounts);
+
   const fx = await fetchFxRates();
   const journalStats = computeJournalStats(
     data.trades ?? [],
@@ -97,78 +100,84 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard
-          label="Net worth"
-          value={formatCurrency(netWorth)}
-          sub={new Date(latest.date).toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          })}
-        />
-        <StatCard
-          label="Liquid net worth"
-          value={formatCurrency(liquidNw)}
-          sub={`Excludes CPF/SRS (${formatCurrency(cpfSrs)}), property & HDB loan`}
-          tone="default"
-        />
-        <StatCard
-          label="Month over month"
-          value={
-            percent !== null
-              ? formatPercent(percent, true)
-              : formatCurrency(delta, true)
-          }
-          sub={
-            liquidDelta.percent !== null
-              ? `Liquid ${formatPercent(liquidDelta.percent, true)}`
-              : percent !== null
-                ? `${delta >= 0 ? "+" : ""}${formatCurrency(delta)}`
-                : "First comparison"
-          }
-          tone={momTone}
-        />
-        <StatCard
-          label="Insurance (surrender)"
-          value={formatCurrency(insTotal)}
-          sub={
-            <Link href="/insurance" className="text-accent hover:underline">
-              Manage policies
-            </Link>
-          }
-        />
-        <StatCard
-          label="Loans to others"
-          value={formatCurrency(loansTotal)}
-          sub={
-            <Link href="/loans" className="text-accent hover:underline">
-              Manage loans
-            </Link>
-          }
-        />
-        <StatCard
-          label="Investable (incl. CPF)"
-          value={formatCurrency(
-            totals.cash +
-              totals.investments +
-              totals.retirement +
-              totals.other_asset +
-              insTotal,
-          )}
-          sub="Cash + investments + CPF/SRS + other"
-        />
-        <StatCard
-          label="Liabilities"
-          value={formatCurrency(Math.abs(totals.liability))}
-          sub={
-            totals.liability < 0
-              ? `${((Math.abs(totals.liability) / netWorth) * 100).toFixed(0)}% of net worth`
-              : undefined
-          }
-          tone={totals.liability < 0 ? "negative" : "default"}
-        />
-      </section>
+      <DashboardStats
+        breakdowns={breakdowns}
+        stats={[
+          {
+            breakdownId: "net-worth",
+            label: "Net worth",
+            value: formatCurrency(netWorth),
+            sub: new Date(latest.date).toLocaleDateString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            }),
+          },
+          {
+            breakdownId: "liquid-net-worth",
+            label: "Liquid net worth",
+            value: formatCurrency(liquidNw),
+            sub: `Excludes CPF/SRS (${formatCurrency(cpfSrs)}), property & HDB loan`,
+          },
+          {
+            breakdownId: "mom",
+            label: "Month over month",
+            value:
+              percent !== null
+                ? formatPercent(percent, true)
+                : `${delta >= 0 ? "+" : ""}${formatCurrency(delta)}`,
+            sub:
+              liquidDelta.percent !== null
+                ? `Liquid ${formatPercent(liquidDelta.percent, true)}`
+                : percent !== null
+                  ? `${delta >= 0 ? "+" : ""}${formatCurrency(delta)} vs prior snapshot`
+                  : "First comparison",
+            tone: momTone,
+          },
+          {
+            breakdownId: "insurance",
+            label: "Insurance (surrender)",
+            value: formatCurrency(insTotal),
+            sub: (
+              <Link href="/insurance" className="text-accent hover:underline">
+                Manage policies
+              </Link>
+            ),
+          },
+          {
+            breakdownId: "loans",
+            label: "Loans to others",
+            value: formatCurrency(loansTotal),
+            sub: (
+              <Link href="/loans" className="text-accent hover:underline">
+                Manage loans
+              </Link>
+            ),
+          },
+          {
+            breakdownId: "investable",
+            label: "Investable (incl. CPF)",
+            value: formatCurrency(
+              totals.cash +
+                totals.investments +
+                totals.retirement +
+                totals.other_asset +
+                insTotal,
+            ),
+            sub: "Cash + investments + CPF/SRS + other",
+          },
+          {
+            breakdownId: "liabilities",
+            label: "Liabilities",
+            value: formatCurrency(Math.abs(totals.liability)),
+            sub:
+              totals.liability < 0
+                ? `${((Math.abs(totals.liability) / netWorth) * 100).toFixed(0)}% of net worth`
+                : undefined,
+            tone: totals.liability < 0 ? "negative" : "default",
+          },
+        ]}
+      />
 
       {(data.trades?.length ?? 0) > 0 ? (
         <section className="rounded-xl border border-surface-border bg-surface-raised p-5">

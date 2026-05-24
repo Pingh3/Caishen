@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ThemeIndicator } from "@/components/ThemeIndicator";
 
 const links = [
   { href: "/", label: "Dashboard" },
@@ -21,9 +22,12 @@ export function Nav() {
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p className="text-xs font-medium uppercase tracking-widest text-muted">
-          Singapore · SGD
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-medium uppercase tracking-widest text-muted">
+            Singapore · SGD
+          </p>
+          <ThemeIndicator />
+        </div>
         <h1 className="text-xl font-semibold tracking-tight text-primary">
           Caishen
         </h1>
