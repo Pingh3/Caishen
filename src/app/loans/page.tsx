@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useAmountFormatters } from "@/components/PrivacyProvider";
 import { persistFinanceData } from "@/lib/client-finance";
-import { formatCurrency, personalLoansTotal } from "@/lib/finance";
+import { personalLoansTotal } from "@/lib/finance";
 import type { FinanceData, PersonalLoan } from "@/lib/types";
 
 function newId(): string {
@@ -20,6 +21,7 @@ const emptyForm = {
 };
 
 export default function LoansPage() {
+  const fmt = useAmountFormatters();
   const [data, setData] = useState<FinanceData | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -142,7 +144,7 @@ export default function LoansPage() {
           and liquid net worth as an asset.
         </p>
         <p className="mt-2 font-mono text-xl font-semibold text-primary">
-          {formatCurrency(totalOutstanding)}
+          {fmt.currency(totalOutstanding)}
           <span className="ml-2 text-sm font-normal text-muted">
             total outstanding
           </span>
@@ -177,7 +179,7 @@ export default function LoansPage() {
                 </div>
                 <div className="text-right">
                   <p className="font-mono text-lg font-semibold text-primary">
-                    {formatCurrency(l.principalOutstanding)}
+                    {fmt.currency(l.principalOutstanding)}
                   </p>
                   <p className="text-[10px] uppercase text-muted">Outstanding</p>
                   <div className="mt-2 space-x-2">

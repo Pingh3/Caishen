@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useAmountFormatters } from "@/components/PrivacyProvider";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
-  formatCurrency,
   latestSnapshot,
 } from "@/lib/finance";
 import {
@@ -36,6 +36,7 @@ function SyncBadge({ source }: { source: "investments" | "property" }) {
 }
 
 export default function UpdatePage() {
+  const fmt = useAmountFormatters();
   const router = useRouter();
   const [data, setData] = useState<FinanceData | null>(null);
   const [date, setDate] = useState(todayIso());
@@ -212,7 +213,7 @@ export default function UpdatePage() {
                             title={`Synced from ${snapshotSyncLabel(syncSource!)}`}
                           >
                             {numeric !== undefined && !Number.isNaN(numeric)
-                              ? formatCurrency(numeric)
+                              ? fmt.currency(numeric)
                               : "—"}
                           </span>
                         ) : (

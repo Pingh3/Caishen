@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { cookies } from "next/headers";
 import { Nav } from "@/components/Nav";
+import { PrivacyProvider } from "@/components/PrivacyProvider";
 import { APP_NAME } from "@/lib/app";
+import { isHideAmountsEnabled, PRIVACY_COOKIE } from "@/lib/privacy";
 import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
 import "./globals.css";
 
@@ -24,11 +27,15 @@ export const metadata: Metadata = {
   applicationName: APP_NAME,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const hideAmounts = isHideAmountsEnabled(
+    (await cookies()).get(PRIVACY_COOKIE)?.value,
+  );
+
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
@@ -38,10 +45,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen font-sans`}
       >
         <ThemeProvider>
-          <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-12 pt-6 sm:px-6">
-            <Nav />
-            <main className="mt-8 flex-1">{children}</main>
-          </div>
+          <PrivacyProvider initialHide={hideAmounts}>
+            <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-12 pt-6 sm:px-6">
+              <Nav />
+              <main className="mt-8 flex-1">{children}</main>
+            </div>
+          </PrivacyProvider>
         </ThemeProvider>
       </body>
     </html>

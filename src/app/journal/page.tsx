@@ -10,13 +10,9 @@ import {
 } from "react";
 import { BrokerageQuickAdd } from "@/components/BrokerageQuickAdd";
 import { TradeDividendEditor } from "@/components/TradeDividendEditor";
+import { useAmountFormatters } from "@/components/PrivacyProvider";
 import { listBrokerageAccounts } from "@/lib/brokerages";
 import { loadFinanceData, persistFinanceData } from "@/lib/client-finance";
-import {
-  formatCurrency,
-  formatPercent,
-  formatTradePrice,
-} from "@/lib/finance";
 import {
   JOURNAL_FILTER_OPTIONS,
   matchesJournalFilter,
@@ -77,6 +73,7 @@ const emptyForm = {
 };
 
 export default function JournalPage() {
+  const fmt = useAmountFormatters();
   const [data, setData] = useState<FinanceData | null>(null);
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
   const [fx, setFx] = useState<FxRates>(defaultFxRates);
@@ -700,7 +697,7 @@ export default function JournalPage() {
               stats.realizedPnlSgd >= 0 ? "text-positive" : "text-negative"
             }`}
           >
-            {formatCurrency(stats.realizedPnlSgd)}
+            {fmt.currency(stats.realizedPnlSgd)}
           </p>
           <p className="text-xs text-muted">{stats.closedCount} closed</p>
         </div>
@@ -711,28 +708,28 @@ export default function JournalPage() {
               stats.openUnrealizedSgd >= 0 ? "text-positive" : "text-negative"
             }`}
           >
-            {formatCurrency(stats.openUnrealizedSgd)}
+            {fmt.currency(stats.openUnrealizedSgd)}
           </p>
           <p className="text-xs text-muted">
-            {stats.openCount} open · {formatCurrency(stats.openCostSgd)}
+            {stats.openCount} open · {fmt.currency(stats.openCostSgd)}
           </p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <p className="text-xs uppercase text-muted">Win rate</p>
           <p className="font-mono text-xl font-semibold text-primary">
-            {stats.winRate !== null ? formatPercent(stats.winRate) : "-"}
+            {stats.winRate !== null ? fmt.percent(stats.winRate) : "-"}
           </p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <p className="text-xs uppercase text-muted">Avg win / loss</p>
           <p className="font-mono text-sm font-semibold text-positive">
             {stats.avgWinPct !== null
-              ? formatPercent(stats.avgWinPct, true)
+              ? fmt.percent(stats.avgWinPct, true)
               : "-"}
           </p>
           <p className="font-mono text-sm font-semibold text-negative">
             {stats.avgLossPct !== null
-              ? formatPercent(stats.avgLossPct)
+              ? fmt.percent(stats.avgLossPct)
               : "-"}
           </p>
         </div>
@@ -818,7 +815,7 @@ export default function JournalPage() {
                 const mark = isTradeOpen(t) ? q?.price : t.exitPrice;
                 const pnl = tradePnlSgd(t, mark, fx);
                 const comm = tradeTotalCommission(t);
-                const fmt = (n: number) => formatTradePrice(n, t.market);
+                const priceFmt = (n: number) => fmt.tradePrice(n, t.market);
                 const div = tradeDividendSummary(t);
                 return (
                   <tr key={t.id} className="border-t border-surface-border">
@@ -849,19 +846,19 @@ export default function JournalPage() {
                       {t.quantity.toLocaleString()}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs">
-                      {fmt(t.entryPrice)}
+                      {priceFmt(t.entryPrice)}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs">
-                      {mark !== undefined ? fmt(mark) : "-"}
+                      {mark !== undefined ? priceFmt(mark) : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {comm > 0 ? fmt(comm) : "-"}
+                      {comm > 0 ? priceFmt(comm) : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {div ? fmt(div.perShareNet) : "-"}
+                      {div ? priceFmt(div.perShareNet) : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {div ? fmt(div.netTotal) : "-"}
+                      {div ? priceFmt(div.netTotal) : "-"}
                     </td>
                     <td
                       className={`px-3 py-2.5 text-right font-mono text-xs ${
@@ -871,9 +868,9 @@ export default function JournalPage() {
                       }`}
                     >
                       {pnl
-                        ? `${formatCurrency(pnl.pnlSgd)}${
+                        ? `${fmt.currency(pnl.pnlSgd)}${
                             pnl.pnlPct !== null
-                              ? ` (${formatPercent(pnl.pnlPct, true)})`
+                              ? ` (${fmt.percent(pnl.pnlPct, true)})`
                               : ""
                           }`
                         : "-"}

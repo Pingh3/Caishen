@@ -1,6 +1,7 @@
 "use client";
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { usePrivacy } from "@/components/PrivacyProvider";
 import { formatCurrency } from "@/lib/finance";
 import type { AccountCategory } from "@/lib/types";
 
@@ -16,6 +17,8 @@ const COLORS: Record<AccountCategory, string> = {
 type Slice = { category: AccountCategory; value: number; name: string };
 
 export function AllocationChart({ slices }: { slices: Slice[] }) {
+  const { hideAmounts } = usePrivacy();
+
   if (slices.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-muted">
@@ -50,7 +53,7 @@ export function AllocationChart({ slices }: { slices: Slice[] }) {
             color: "rgb(var(--text-primary))",
           }}
           formatter={(value: number, name: string) => [
-            formatCurrency(value),
+            formatCurrency(value, false, hideAmounts),
             name,
           ]}
         />

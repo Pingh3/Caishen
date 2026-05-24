@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { usePrivacy } from "@/components/PrivacyProvider";
 import { formatCurrency } from "@/lib/finance";
 
 type Point = {
@@ -19,6 +20,8 @@ type Point = {
 };
 
 export function NetWorthChart({ data }: { data: Point[] }) {
+  const { hideAmounts } = usePrivacy();
+
   if (data.length < 2) {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-muted">
@@ -41,7 +44,7 @@ export function NetWorthChart({ data }: { data: Point[] }) {
           tick={{ fill: "rgb(var(--text-muted))", fontSize: 11 }}
           axisLine={false}
           tickLine={false}
-          tickFormatter={(v) => formatCurrency(v, true)}
+          tickFormatter={(v) => formatCurrency(v, true, hideAmounts)}
           width={64}
         />
         <Tooltip
@@ -53,7 +56,7 @@ export function NetWorthChart({ data }: { data: Point[] }) {
             color: "rgb(var(--text-primary))",
           }}
           formatter={(value: number, name: string) => [
-            formatCurrency(value),
+            formatCurrency(value, false, hideAmounts),
             name === "liquidNetWorth" ? "Liquid net worth" : "Net worth",
           ]}
           labelFormatter={(_, payload) =>

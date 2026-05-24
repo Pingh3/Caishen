@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useAmountFormatters } from "@/components/PrivacyProvider";
 import { persistFinanceData } from "@/lib/client-finance";
 import {
   carLoanOwed,
-  formatCurrency,
   latestSnapshot,
   vehicleEquity,
   vehicleValue,
@@ -21,6 +21,7 @@ const emptyForm = {
 };
 
 export default function VehiclePage() {
+  const fmt = useAmountFormatters();
   const [data, setData] = useState<FinanceData | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -142,19 +143,19 @@ export default function VehiclePage() {
           <div>
             <p className="text-xs uppercase tracking-wide text-muted">Value</p>
             <p className="mt-1 text-lg font-semibold tabular-nums text-primary">
-              {formatCurrency(value)}
+              {fmt.currency(value)}
             </p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-muted">Car loan</p>
             <p className="mt-1 text-lg font-semibold tabular-nums text-negative">
-              {loanOwed > 0 ? formatCurrency(loanOwed) : "—"}
+              {loanOwed > 0 ? fmt.currency(loanOwed) : "—"}
             </p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-muted">Net equity</p>
             <p className="mt-1 text-lg font-semibold tabular-nums text-primary">
-              {formatCurrency(equity)}
+              {fmt.currency(equity)}
             </p>
           </div>
         </section>

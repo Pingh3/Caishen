@@ -182,8 +182,9 @@ export function holdingsFromOpenTrades(trades: Trade[]): Holding[] {
 export function formatTradePnlLine(
   pnlSgd: number,
   pnlPct: number | null,
+  hide = false,
 ): string {
   const pct =
-    pnlPct !== null ? ` (${formatPercent(pnlPct, true)})` : "";
-  return `${formatCurrency(pnlSgd)}${pct}`;
+    pnlPct !== null ? ` (${formatPercent(pnlPct, true, hide)})` : "";
+  return `${formatCurrency(pnlSgd, false, hide)}${pct}`;
 }

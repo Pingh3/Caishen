@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useAmountFormatters } from "@/components/PrivacyProvider";
 import { persistFinanceData } from "@/lib/client-finance";
-import { formatCurrency, insuranceTotal } from "@/lib/finance";
+import { insuranceTotal } from "@/lib/finance";
 import type {
   FinanceData,
   InsurancePolicy,
@@ -39,6 +40,7 @@ const emptyForm = {
 };
 
 export default function InsurancePage() {
+  const fmt = useAmountFormatters();
   const [data, setData] = useState<FinanceData | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -162,7 +164,7 @@ export default function InsurancePage() {
           . Term and shield plans can be listed at $0 cash value for reference.
         </p>
         <p className="mt-2 font-mono text-xl font-semibold text-primary">
-          {formatCurrency(totalSurrender)}
+          {fmt.currency(totalSurrender)}
           <span className="ml-2 text-sm font-normal text-muted">
             total surrender value
           </span>
@@ -188,9 +190,9 @@ export default function InsurancePage() {
                   </p>
                   {p.sumAssured ? (
                     <p className="mt-1 text-xs text-secondary">
-                      Sum assured {formatCurrency(p.sumAssured)}
+                      Sum assured {fmt.currency(p.sumAssured)}
                       {p.annualPremium
-                        ? ` · premium ${formatCurrency(p.annualPremium)}/yr`
+                        ? ` · premium ${fmt.currency(p.annualPremium)}/yr`
                         : ""}
                     </p>
                   ) : null}
@@ -200,7 +202,7 @@ export default function InsurancePage() {
                 </div>
                 <div className="text-right">
                   <p className="font-mono text-lg font-semibold text-primary">
-                    {formatCurrency(p.surrenderValue)}
+                    {fmt.currency(p.surrenderValue)}
                   </p>
                   <p className="text-[10px] uppercase text-muted">
                     Surrender value

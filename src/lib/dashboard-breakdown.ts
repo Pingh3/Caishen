@@ -1,3 +1,4 @@
+import { AMOUNT_MASK } from "./privacy";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
@@ -534,7 +535,8 @@ export function buildAllDashboardBreakdowns(
   ];
 }
 
-export function formatBreakdownAmount(amount: number): string {
+export function formatBreakdownAmount(amount: number, hide = false): string {
+  if (hide) return AMOUNT_MASK;
   const prefix = amount < 0 ? "−" : "";
-  return `${prefix}${formatCurrency(Math.abs(amount))}`;
+  return `${prefix}${formatCurrency(Math.abs(amount), false, hide)}`;
 }

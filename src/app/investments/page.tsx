@@ -3,16 +3,12 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { BrokerageQuickAdd } from "@/components/BrokerageQuickAdd";
+import { useAmountFormatters } from "@/components/PrivacyProvider";
 import { persistFinanceData } from "@/lib/client-finance";
 import {
   brokerageNamesLabel,
   listBrokerageAccounts,
 } from "@/lib/brokerages";
-import {
-  formatCurrency,
-  formatPercent,
-  formatTradePrice,
-} from "@/lib/finance";
 import {
   defaultFxRates,
   holdingPnl,
@@ -32,6 +28,7 @@ function accountName(data: FinanceData, id?: string): string | null {
 }
 
 export default function InvestmentsPage() {
+  const fmt = useAmountFormatters();
   const [data, setData] = useState<FinanceData | null>(null);
   const [quotes, setQuotes] = useState<QuoteResult[]>([]);
   const [fx, setFx] = useState<FxRates>(defaultFxRates);
@@ -217,7 +214,7 @@ export default function InvestmentsPage() {
     setMessage(
       byAccount.size > 0
         ? `Updated ${byAccount.size} linked account(s) in latest snapshot.`
-        : `Portfolio total ${formatCurrency(totalSgd)} — link holdings to a brokerage to sync.`,
+        : `Portfolio total ${fmt.currency(totalSgd)} — link holdings to a brokerage to sync.`,
     );
   }
 
@@ -324,13 +321,13 @@ export default function InvestmentsPage() {
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <p className="text-xs font-medium uppercase text-muted">Value (SGD)</p>
           <p className="font-mono text-2xl font-semibold tabular-nums text-primary">
-            {formatCurrency(totalValue)}
+            {fmt.currency(totalValue)}
           </p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <p className="text-xs font-medium uppercase text-muted">Cost (SGD)</p>
           <p className="font-mono text-2xl font-semibold tabular-nums text-primary">
-            {formatCurrency(totalCost)}
+            {fmt.currency(totalCost)}
           </p>
         </div>
         <div className="rounded-xl border border-surface-border bg-surface-raised p-4">
@@ -340,10 +337,10 @@ export default function InvestmentsPage() {
               totalPnl >= 0 ? "text-positive" : "text-negative"
             }`}
           >
-            {formatCurrency(totalPnl)}
+            {fmt.currency(totalPnl)}
             {totalPnlPct !== null ? (
               <span className="ml-2 text-base">
-                ({formatPercent(totalPnlPct, true)})
+                ({fmt.percent(totalPnlPct, true)})
               </span>
             ) : null}
           </p>
@@ -390,18 +387,18 @@ export default function InvestmentsPage() {
                       {h.quantity}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
-                      {formatTradePrice(h.avgEntryPrice, h.market)}
+                      {fmt.tradePrice(h.avgEntryPrice, h.market)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
                       {q ? (
                         h.market === "SG" ? (
-                          formatTradePrice(q.price, "SG")
+                          fmt.tradePrice(q.price, "SG")
                         ) : (
                           <>
-                            {formatTradePrice(q.price, h.market)}
+                            {fmt.tradePrice(q.price, h.market)}
                             <br />
                             <span className="text-muted">
-                              {formatCurrency(q.priceSgd)}
+                              {fmt.currency(q.priceSgd)}
                             </span>
                           </>
                         )
@@ -410,18 +407,18 @@ export default function InvestmentsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right font-mono tabular-nums">
-                      {formatCurrency(valueSgd)}
+                      {fmt.currency(valueSgd)}
                     </td>
                     <td
                       className={`px-4 py-3 text-right font-mono text-xs tabular-nums ${
                         pnlSgd >= 0 ? "text-positive" : "text-negative"
                       }`}
                     >
-                      {formatCurrency(pnlSgd)}
+                      {fmt.currency(pnlSgd)}
                       {pnlPercent !== null ? (
                         <>
                           <br />
-                          {formatPercent(pnlPercent, true)}
+                          {fmt.percent(pnlPercent, true)}
                         </>
                       ) : null}
                     </td>

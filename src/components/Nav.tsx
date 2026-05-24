@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { PrivacyToggle } from "@/components/PrivacyToggle";
 import { ThemeIndicator } from "@/components/ThemeIndicator";
 import { APP_NAME } from "@/lib/app";
 
@@ -29,6 +30,7 @@ export function Nav() {
             Singapore · SGD
           </p>
           <ThemeIndicator />
+          <PrivacyToggle />
         </div>
         <h1 className="text-xl font-semibold tracking-tight text-primary">
           {APP_NAME}

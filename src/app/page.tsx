@@ -31,16 +31,23 @@ import {
 import { fetchFxRates } from "@/lib/market";
 import { readFinanceData } from "@/lib/storage";
 import { buildProjections } from "@/lib/projection";
+import { isHideAmountsEnabled, PRIVACY_COOKIE } from "@/lib/privacy";
 import { computeJournalStats } from "@/lib/trades";
+import { cookies } from "next/headers";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const data = await readFinanceData();
+  const hide = isHideAmountsEnabled(
+    (await cookies()).get(PRIVACY_COOKIE)?.value,
+  );
+  const fc = (n: number, compact = false) => formatCurrency(n, compact, hide);
+  const fp = (n: number, signed = false) => formatPercent(n, signed, hide);
   const accounts = data.accounts.filter((a) => !a.archived);
   const latest = latestSnapshot(data);
-  const insights = generateInsights(data);
+  const insights = generateInsights(data, hide);
 
   if (!latest) {
     return (
@@ -142,7 +149,7 @@ export default async function DashboardPage() {
           {
             breakdownId: "net-worth",
             label: "Net worth",
-            value: formatCurrency(netWorth),
+            value: fc(netWorth),
             sub: new Date(latest.date).toLocaleDateString("en-US", {
               month: "long",
               day: "numeric",
@@ -152,16 +159,16 @@ export default async function DashboardPage() {
           {
             breakdownId: "liquid-net-worth",
             label: "Liquid net worth",
-            value: formatCurrency(liquidNw),
-            sub: `Excludes CPF/SRS (${formatCurrency(cpfSrs)}), property, vehicle & HDB loan`,
+            value: fc(liquidNw),
+            sub: `Excludes CPF/SRS (${fc(cpfSrs)}), property, vehicle & HDB loan`,
           },
           {
             breakdownId: "most-liquid-net-worth",
             label: "Most liquid net worth",
-            value: formatCurrency(mostLiquidNw),
+            value: fc(mostLiquidNw),
             sub:
               mostLiquidDelta.percent !== null
-                ? `Cash & investments · ${formatPercent(mostLiquidDelta.percent, true)} MoM`
+                ? `Cash & investments · ${fp(mostLiquidDelta.percent, true)} MoM`
                 : "Cash & investments only",
           },
           {
@@ -169,20 +176,20 @@ export default async function DashboardPage() {
             label: "Month over month",
             value:
               percent !== null
-                ? formatPercent(percent, true)
-                : `${delta >= 0 ? "+" : ""}${formatCurrency(delta)}`,
+                ? fp(percent, true)
+                : `${delta >= 0 ? "+" : ""}${fc(delta)}`,
             sub:
               liquidDelta.percent !== null
-                ? `Liquid ${formatPercent(liquidDelta.percent, true)}`
+                ? `Liquid ${fp(liquidDelta.percent, true)}`
                 : percent !== null
-                  ? `${delta >= 0 ? "+" : ""}${formatCurrency(delta)} vs prior snapshot`
+                  ? `${delta >= 0 ? "+" : ""}${fc(delta)} vs prior snapshot`
                   : "First comparison",
             tone: momTone,
           },
           {
             breakdownId: "insurance",
             label: "Insurance (surrender)",
-            value: formatCurrency(insTotal),
+            value: fc(insTotal),
             sub: (
               <Link href="/insurance" className="text-accent hover:underline">
                 Manage policies
@@ -192,7 +199,7 @@ export default async function DashboardPage() {
           {
             breakdownId: "loans",
             label: "Loans to others",
-            value: formatCurrency(loansTotal),
+            value: fc(loansTotal),
             sub: (
               <Link href="/loans" className="text-accent hover:underline">
                 Manage loans
@@ -204,10 +211,10 @@ export default async function DashboardPage() {
                 {
                   breakdownId: "vehicle" as const,
                   label: "Vehicle",
-                  value: formatCurrency(vehicleVal),
+                  value: fc(vehicleVal),
                   sub: (
                     <Link href="/vehicle" className="text-accent hover:underline">
-                      Net equity {formatCurrency(vehicleEq)}
+                      Net equity {fc(vehicleEq)}
                     </Link>
                   ),
                 },
@@ -216,7 +223,7 @@ export default async function DashboardPage() {
           {
             breakdownId: "investable",
             label: "Investable (incl. CPF)",
-            value: formatCurrency(
+            value: fc(
               totals.cash +
                 totals.investments +
                 totals.retirement +
@@ -228,7 +235,7 @@ export default async function DashboardPage() {
           {
             breakdownId: "liabilities",
             label: "Liabilities",
-            value: formatCurrency(Math.abs(totals.liability)),
+            value: fc(Math.abs(totals.liability)),
             sub:
               totals.liability < 0
                 ? `${((Math.abs(totals.liability) / netWorth) * 100).toFixed(0)}% of net worth`
@@ -264,20 +271,20 @@ export default async function DashboardPage() {
                     : "text-negative"
                 }`}
               >
-                {formatCurrency(journalStats.realizedPnlSgd)}
+                {fc(journalStats.realizedPnlSgd)}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted">Open positions</p>
               <p className="font-mono text-lg font-semibold text-primary">
-                {formatCurrency(journalStats.openCostSgd)}
+                {fc(journalStats.openCostSgd)}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted">Win rate (closed)</p>
               <p className="font-mono text-lg font-semibold text-primary">
                 {journalStats.winRate !== null
-                  ? formatPercent(journalStats.winRate)
+                  ? fp(journalStats.winRate)
                   : "—"}
               </p>
             </div>
@@ -302,7 +309,7 @@ export default async function DashboardPage() {
                 Future projections
               </h2>
               <p className="text-xs text-muted">
-                ~{formatCurrency(projections.monthlySavings)}/mo savings ·{" "}
+                ~{fc(projections.monthlySavings)}/mo savings ·{" "}
                 {returnPct}% p.a. return · not financial advice
               </p>
             </div>
@@ -321,11 +328,11 @@ export default async function DashboardPage() {
               >
                 <p className="text-xs uppercase text-muted">{row.label}</p>
                 <p className="mt-1 font-mono text-lg font-semibold tabular-nums text-primary">
-                  {formatCurrency(row.netWorth)}
+                  {fc(row.netWorth)}
                 </p>
                 <p className="text-[10px] text-muted">
                   +
-                  {formatCurrency(row.netWorth - netWorth)} vs today
+                  {fc(row.netWorth - netWorth)} vs today
                 </p>
               </div>
             ))}
@@ -371,7 +378,7 @@ export default async function DashboardPage() {
               >
                 <span>{s.name}</span>
                 <span className="font-mono tabular-nums">
-                  {formatCurrency(s.value)}
+                  {fc(s.value)}
                 </span>
               </li>
             ))}
@@ -396,7 +403,7 @@ export default async function DashboardPage() {
                     Insurance (surrender)
                   </td>
                   <td className="py-2.5 text-right font-mono tabular-nums text-primary">
-                    {formatCurrency(insTotal)}
+                    {fc(insTotal)}
                   </td>
                 </tr>
               ) : null}
@@ -409,7 +416,7 @@ export default async function DashboardPage() {
                     </Link>
                   </td>
                   <td className="py-2.5 text-right font-mono tabular-nums text-primary">
-                    {formatCurrency(vehicleVal)}
+                    {fc(vehicleVal)}
                   </td>
                 </tr>
               ) : null}
@@ -422,7 +429,7 @@ export default async function DashboardPage() {
                       </Link>
                     </td>
                     <td className="py-2.5 text-right font-mono tabular-nums text-primary">
-                      {formatCurrency(propertyGross)}
+                      {fc(propertyGross)}
                     </td>
                   </tr>
                   {propertyMortgage > 0 ? (
@@ -431,7 +438,7 @@ export default async function DashboardPage() {
                         Less mortgage / HDB loan
                       </td>
                       <td className="py-2.5 text-right font-mono tabular-nums text-negative">
-                        −{formatCurrency(propertyMortgage)}
+                        −{fc(propertyMortgage)}
                       </td>
                     </tr>
                   ) : null}
@@ -440,7 +447,7 @@ export default async function DashboardPage() {
                       Property (net equity)
                     </td>
                     <td className="py-2.5 text-right font-mono tabular-nums text-primary">
-                      {formatCurrency(propertyNet)}
+                      {fc(propertyNet)}
                     </td>
                   </tr>
                 </>
@@ -464,7 +471,7 @@ export default async function DashboardPage() {
                         v < 0 ? "text-negative" : "text-primary"
                       }`}
                     >
-                      {formatCurrency(Math.abs(v) * (v < 0 ? -1 : 1))}
+                      {fc(Math.abs(v) * (v < 0 ? -1 : 1))}
                     </td>
                   </tr>
                 );

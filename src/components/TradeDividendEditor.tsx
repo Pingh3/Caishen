@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useAmountFormatters } from "@/components/PrivacyProvider";
 import {
   buildDividendPayment,
   netDividendFromGross,
   syncTradeDividendTotals,
 } from "@/lib/dividends";
-import { formatTradePrice } from "@/lib/finance";
 import type { DividendPayment, StockMarket, Trade } from "@/lib/types";
 
 type Props = {
@@ -36,13 +36,14 @@ export function TradeDividendEditor({
   payments,
   onChange,
 }: Props) {
+  const display = useAmountFormatters();
   const [row, setRow] = useState(emptyRow);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
   if (category !== "stocks" || quantity <= 0) return null;
 
-  const fmt = (n: number) => formatTradePrice(n, market);
+  const fmt = (n: number) => display.tradePrice(n, market);
   const totals = syncTradeDividendTotals(
     { market, quantity } as Trade,
     payments,

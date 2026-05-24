@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
+import { PrivacyToggle } from "@/components/PrivacyToggle";
 import { persistFinanceData } from "@/lib/client-finance";
 import { CATEGORY_LABELS } from "@/lib/finance";
 import type { AccountCategory, FinanceData } from "@/lib/types";
@@ -113,6 +114,20 @@ export default function SettingsPage() {
       </div>
 
       <form onSubmit={onSubmit} className="space-y-6">
+        <fieldset className="rounded-xl border border-surface-border bg-surface-raised p-4">
+          <legend className="px-1 text-sm font-medium text-zinc-300">
+            Privacy
+          </legend>
+          <p className="mt-1 text-xs text-zinc-500">
+            Hide dollar amounts and percentages across the app (shown as{" "}
+            <span className="font-mono">xxx</span>). Useful when sharing your
+            screen.
+          </p>
+          <div className="mt-3">
+            <PrivacyToggle />
+          </div>
+        </fieldset>
+
         <fieldset className="rounded-xl border border-surface-border bg-surface-raised p-4">
           <legend className="px-1 text-sm font-medium text-zinc-300">
             Income &amp; projections

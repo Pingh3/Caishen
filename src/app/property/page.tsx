@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { formatCurrency } from "@/lib/finance";
+import { useAmountFormatters } from "@/components/PrivacyProvider";
 import type { FinanceData, PropertyProfile, SgHouseType } from "@/lib/types";
 import type { PropertyEstimate } from "@/lib/sg-property";
 
@@ -15,6 +15,7 @@ const HOUSE_TYPES: { value: SgHouseType; label: string }[] = [
 ];
 
 export default function PropertyPage() {
+  const fmt = useAmountFormatters();
   const [data, setData] = useState<FinanceData | null>(null);
   const [postalCode, setPostalCode] = useState("");
   const [houseType, setHouseType] = useState<SgHouseType>("HDB_4RM");
@@ -114,7 +115,7 @@ export default function PropertyPage() {
       body: JSON.stringify({ ...data, snapshots }),
     });
     setMessage(
-      `Set ${propertyAccount.name} to ${formatCurrency(estimate.equity)} (equity) in latest snapshot.`,
+      `Set ${propertyAccount.name} to ${fmt.currency(estimate.equity)} (equity) in latest snapshot.`,
     );
   }
 
@@ -200,7 +201,7 @@ export default function PropertyPage() {
             <div>
               <p className="text-xs uppercase text-muted">Estimated value</p>
               <p className="font-mono text-2xl font-semibold text-primary">
-                {formatCurrency(estimate.estimatedValue)}
+                {fmt.currency(estimate.estimatedValue)}
               </p>
               <p className="text-xs text-secondary">
                 {estimate.town} · {estimate.source === "hdb_data" ? "HDB resale data" : "Heuristic"}
@@ -212,10 +213,10 @@ export default function PropertyPage() {
             <div>
               <p className="text-xs uppercase text-muted">Equity</p>
               <p className="font-mono text-2xl font-semibold text-positive">
-                {formatCurrency(estimate.equity)}
+                {fmt.currency(estimate.equity)}
               </p>
               <p className="text-xs text-secondary">
-                After mortgage {formatCurrency(estimate.mortgageOutstanding)}
+                After mortgage {fmt.currency(estimate.mortgageOutstanding)}
               </p>
             </div>
           </div>

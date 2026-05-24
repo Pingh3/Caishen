@@ -1,3 +1,4 @@
+import { AMOUNT_MASK } from "./privacy";
 import type {
   Account,
   AccountCategory,
@@ -80,7 +81,12 @@ export function ensureCoreAccounts(data: FinanceData): FinanceData {
   return added ? { ...data, accounts } : data;
 }
 
-export function formatCurrency(n: number, compact = false): string {
+export function formatCurrency(
+  n: number,
+  compact = false,
+  hide = false,
+): string {
+  if (hide) return AMOUNT_MASK;
   if (compact && Math.abs(n) >= 1_000_000) {
     return new Intl.NumberFormat("en-SG", {
       style: "currency",
@@ -96,7 +102,8 @@ export function formatCurrency(n: number, compact = false): string {
   }).format(n);
 }
 
-export function formatUsd(n: number): string {
+export function formatUsd(n: number, hide = false): string {
+  if (hide) return AMOUNT_MASK;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -109,7 +116,9 @@ export function formatUsd(n: number): string {
 export function formatTradePrice(
   n: number,
   market: "US" | "SG" | "HK",
+  hide = false,
 ): string {
+  if (hide) return AMOUNT_MASK;
   const opts = {
     style: "currency" as const,
     minimumFractionDigits: 2,
@@ -128,7 +137,8 @@ export function formatTradePrice(
   return new Intl.NumberFormat("en-SG", { ...opts, currency: "SGD" }).format(n);
 }
 
-export function formatPercent(n: number, signed = false): string {
+export function formatPercent(n: number, signed = false, hide = false): string {
+  if (hide) return AMOUNT_MASK;
   const prefix = signed && n > 0 ? "+" : "";
   return `${prefix}${n.toFixed(1)}%`;
 }
@@ -524,7 +534,7 @@ export function allocationPercents(
     .filter((x) => x.value > 0);
 }
 
-export function generateInsights(data: FinanceData): Insight[] {
+export function generateInsights(data: FinanceData, hide = false): Insight[] {
   const insights: Insight[] = [];
   const latest = latestSnapshot(data);
   if (!latest) return insights;
@@ -561,7 +571,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "liquid-nw",
       severity: "info",
       title: "Liquid vs total net worth",
-      body: `Liquid net worth is ${formatCurrency(liquidNw)} (${((liquidNw / netWorth) * 100).toFixed(0)}% of total). Excludes CPF & SRS, property equity, vehicle value, and HDB/mortgage loans; includes insurance surrender values and personal loans receivable.`,
+      body: `Liquid net worth is ${formatCurrency(liquidNw, false, hide)} (${hide ? AMOUNT_MASK : `${((liquidNw / netWorth) * 100).toFixed(0)}%`} of total). Excludes CPF & SRS, property equity, vehicle value, and HDB/mortgage loans; includes insurance surrender values and personal loans receivable.`,
     });
   }
 
@@ -587,14 +597,14 @@ export function generateInsights(data: FinanceData): Insight[] {
         id: "emergency-fund",
         severity: monthsCovered < 3 ? "action" : "watch",
         title: "Build your emergency fund",
-        body: `Cash covers about ${monthsCovered.toFixed(1)} months of expenses. Target ${emergencyMonths} months (${formatCurrency(monthlyExpenses * emergencyMonths)}) before aggressive investing.`,
+        body: `Cash covers about ${hide ? AMOUNT_MASK : monthsCovered.toFixed(1)} months of expenses. Target ${emergencyMonths} months (${formatCurrency(monthlyExpenses * emergencyMonths, false, hide)}) before aggressive investing.`,
       });
     } else if (monthsCovered > emergencyMonths + 3) {
       insights.push({
         id: "cash-drag",
         severity: "info",
         title: "Excess cash",
-        body: `You hold ~${monthsCovered.toFixed(0)} months of expenses in cash. Consider moving surplus above ${emergencyMonths} months into investments or debt payoff.`,
+        body: `You hold ~${hide ? AMOUNT_MASK : monthsCovered.toFixed(0)} months of expenses in cash. Consider moving surplus above ${emergencyMonths} months into investments or debt payoff.`,
       });
     }
   } else {
@@ -621,7 +631,7 @@ export function generateInsights(data: FinanceData): Insight[] {
         id: "savings-rate",
         severity: "info",
         title: "Estimated monthly savings",
-        body: `About ${formatCurrency(savings)}/month after expenses (${formatPercent((savings / monthlyIncome) * 100)} of gross income). Projections on the dashboard assume you invest this surplus.`,
+        body: `About ${formatCurrency(savings, false, hide)}/month after expenses (${formatPercent((savings / monthlyIncome) * 100, false, hide)} of gross income). Projections on the dashboard assume you invest this surplus.`,
       });
     }
   }
@@ -631,7 +641,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "debt-load",
       severity: liabilities > cashPositive ? "action" : "watch",
       title: "Debt vs liquid cash",
-      body: `Liabilities (${formatCurrency(liabilities)}) ${liabilities > cashPositive ? "exceed" : "are a significant share of"} your liquid cash (${formatCurrency(cashPositive)}). Prioritize high-interest debt before new risk assets.`,
+      body: `Liabilities (${formatCurrency(liabilities, false, hide)}) ${liabilities > cashPositive ? "exceed" : "are a significant share of"} your liquid cash (${formatCurrency(cashPositive, false, hide)}). Prioritize high-interest debt before new risk assets.`,
     });
   }
 
@@ -648,7 +658,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "cpf-concentration",
       severity: "info",
       title: "CPF-heavy balance sheet",
-      body: `CPF & SRS are ${((cpfTotal / netWorth) * 100).toFixed(0)}% of net worth. Remember OA can fund housing while SA builds retirement — plan liquidity outside CPF for emergencies.`,
+      body: `CPF & SRS are ${hide ? AMOUNT_MASK : `${((cpfTotal / netWorth) * 100).toFixed(0)}%`} of net worth. Remember OA can fund housing while SA builds retirement — plan liquidity outside CPF for emergencies.`,
     });
   }
 
@@ -657,7 +667,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "growth-allocation",
       severity: "watch",
       title: "Growth allocation is light",
-      body: `Only ${growthPct.toFixed(0)}% of investable assets are in investments + CPF/SRS (excluding OA used for property). Consider SRS or taxable ETFs if your horizon is 10+ years.`,
+      body: `Only ${hide ? AMOUNT_MASK : `${growthPct.toFixed(0)}%`} of investable assets are in investments + CPF/SRS (excluding OA used for property). Consider SRS or taxable ETFs if your horizon is 10+ years.`,
     });
   }
 
@@ -666,7 +676,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "high-cash",
       severity: "info",
       title: "High cash weight",
-      body: `${cashPct.toFixed(0)}% of investable assets sit in cash. Fine for near-term goals; otherwise consider DCA into diversified ETFs (e.g. VWRA, ES3).`,
+      body: `${hide ? AMOUNT_MASK : `${cashPct.toFixed(0)}%`} of investable assets sit in cash. Fine for near-term goals; otherwise consider DCA into diversified ETFs (e.g. VWRA, ES3).`,
     });
   }
 
@@ -683,7 +693,7 @@ export function generateInsights(data: FinanceData): Insight[] {
         id: "age-rule",
         severity: "info",
         title: "Age-based allocation check",
-        body: `Rule-of-thumb for age ${age}: ~${stockTarget}% in growth assets. You're around ${equityLike.toFixed(0)}% in investments + CPF/SRS (investable only). CPF SA/RSTU and SRS count toward long-term growth.`,
+        body: `Rule-of-thumb for age ${age}: ~${stockTarget}% in growth assets. You're around ${hide ? AMOUNT_MASK : `${equityLike.toFixed(0)}%`} in investments + CPF/SRS (investable only). CPF SA/RSTU and SRS count toward long-term growth.`,
       });
     }
   }
@@ -693,7 +703,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "drawdown",
       severity: "info",
       title: "Recent dip",
-      body: `Net worth fell ${formatPercent(Math.abs(momPct))} since last snapshot. Review whether this is market noise, spending, or a category worth rebalancing.`,
+      body: `Net worth fell ${formatPercent(Math.abs(momPct), false, hide)} since last snapshot. Review whether this is market noise, spending, or a category worth rebalancing.`,
     });
   }
 
@@ -702,7 +712,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "surge",
       severity: "info",
       title: "Strong month",
-      body: `Net worth grew ${formatPercent(momPct)} month-over-month. Good time to confirm allocation still matches goals rather than letting drift run.`,
+      body: `Net worth grew ${formatPercent(momPct, false, hide)} month-over-month. Good time to confirm allocation still matches goals rather than letting drift run.`,
     });
   }
 
@@ -721,7 +731,7 @@ export function generateInsights(data: FinanceData): Insight[] {
           id: `target-${cat}`,
           severity: "watch",
           title: `${CATEGORY_LABELS[cat]} off target`,
-          body: `Target ${target}% vs actual ${actual.toFixed(0)}%. Rebalance or update targets in Settings if your plan changed.`,
+          body: `Target ${target}% vs actual ${hide ? AMOUNT_MASK : `${actual.toFixed(0)}%`}. Rebalance or update targets in Settings if your plan changed.`,
         });
       }
     }

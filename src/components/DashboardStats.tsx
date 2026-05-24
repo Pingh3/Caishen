@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { usePrivacy } from "@/components/PrivacyProvider";
 import {
   formatBreakdownAmount,
   type StatBreakdown,
@@ -22,6 +23,7 @@ type Props = {
 };
 
 export function DashboardStats({ stats, breakdowns }: Props) {
+  const { hideAmounts } = usePrivacy();
   const [openId, setOpenId] = useState<string | null>(null);
 
   const active = breakdowns.find((b) => b.id === openId);
@@ -115,7 +117,7 @@ export function DashboardStats({ stats, breakdowns }: Props) {
                       className={`py-2.5 text-right font-mono tabular-nums ${amountClass}`}
                     >
                       {line.amount !== undefined
-                        ? formatBreakdownAmount(line.amount)
+                        ? formatBreakdownAmount(line.amount, hideAmounts)
                         : "—"}
                     </td>
                   </tr>
@@ -128,7 +130,7 @@ export function DashboardStats({ stats, breakdowns }: Props) {
                   {active.totalLabel}
                 </td>
                 <td className="pt-3 text-right font-mono text-lg font-semibold tabular-nums text-primary">
-                  {formatBreakdownAmount(active.total)}
+                  {formatBreakdownAmount(active.total, hideAmounts)}
                 </td>
               </tr>
             </tfoot>
