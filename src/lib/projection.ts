@@ -59,6 +59,8 @@ export function buildProjections(
     accounts,
     data.insurancePolicies,
     data.personalLoans,
+    data.vehicle,
+    data.property,
   );
   const returnPct = data.settings?.projectionReturnPct ?? 5;
   const horizons = [1, 3, 5, 10, 20];

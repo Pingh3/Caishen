@@ -124,7 +124,12 @@ export default function PropertyPage() {
         <h2 className="text-lg font-semibold text-primary">Property estimate</h2>
         <p className="mt-1 text-sm text-secondary">
           HDB flats use recent resale medians from data.gov.sg by town (from your
-          postal code). Condos and landed use regional heuristics.
+          postal code). Condos and landed use regional heuristics. Net worth uses{" "}
+          <strong className="font-medium text-primary">
+            property value minus your mortgage
+          </strong>
+          . Store <em>net equity</em> on the Property account (or gross value plus
+          mortgage on Update) — not both ways at once.
         </p>
       </div>
 

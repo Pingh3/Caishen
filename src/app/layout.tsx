@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Nav } from "@/components/Nav";
+import { APP_NAME } from "@/lib/app";
 import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
 import "./globals.css";
 
@@ -16,11 +17,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Caishen",
-    template: "%s · Caishen",
+    default: APP_NAME,
+    template: `%s · ${APP_NAME}`,
   },
   description: "Track net worth, CPF, investments, and trading journal in SGD",
-  applicationName: "Caishen",
+  applicationName: APP_NAME,
 };
 
 export default function RootLayout({

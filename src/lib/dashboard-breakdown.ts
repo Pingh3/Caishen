@@ -5,11 +5,17 @@ import {
   insuranceTotal,
   isLiquidSnapshotAccount,
   isMostLiquidSnapshotAccount,
+  isPropertyLinkedLiability,
   personalLoansTotal,
   signedBalance,
   snapshotLiquidNetWorth,
   snapshotMostLiquidNetWorth,
   snapshotNetWorth,
+  vehicleValue,
+  carLoanOwed,
+  propertyGrossValue,
+  propertyNetEquity,
+  mortgageOwed,
 } from "./finance";
 import type {
   Account,
@@ -17,7 +23,9 @@ import type {
   FinanceData,
   InsurancePolicy,
   PersonalLoan,
+  PropertyProfile,
   Snapshot,
+  VehicleProfile,
 } from "./types";
 
 export type BreakdownLine = {
@@ -63,6 +71,47 @@ function accountLines(
   return lines;
 }
 
+function propertyBreakdownLines(
+  snapshot: Snapshot,
+  accounts: Account[],
+  profile?: PropertyProfile,
+): BreakdownLine[] {
+  const gross = propertyGrossValue(snapshot, accounts, profile);
+  const mort = mortgageOwed(snapshot, accounts, profile);
+  const net = propertyNetEquity(snapshot, accounts, profile);
+  if (gross <= 0 && net <= 0) return [];
+
+  const lines: BreakdownLine[] = [];
+  if (gross > 0) {
+    lines.push({
+      label: "Property (estimated value)",
+      amount: gross,
+      href: "/property",
+    });
+  }
+  if (mort > 0) {
+    lines.push({
+      label: "Less mortgage / HDB loan",
+      amount: -mort,
+      href: "/update",
+    });
+  }
+  if (lines.length > 1) {
+    lines.push({
+      label: "Property (net equity)",
+      amount: net,
+      href: "/property",
+    });
+  } else if (net > 0) {
+    lines[0] = {
+      label: "Property (net equity)",
+      amount: net,
+      href: "/property",
+    };
+  }
+  return lines;
+}
+
 function categorySubtotals(
   snapshot: Snapshot,
   accounts: Account[],
@@ -91,16 +140,23 @@ export function buildNetWorthBreakdown(
   accounts: Account[],
   policies: InsurancePolicy[] | undefined,
   loans: PersonalLoan[] | undefined,
+  vehicle?: VehicleProfile,
+  property?: PropertyProfile,
 ): StatBreakdown {
+  const liabilityLines = accountLines(
+    snapshot,
+    accounts,
+    (a) => a.category === "liability" && !isPropertyLinkedLiability(a),
+  );
   const lines: BreakdownLine[] = [
     ...categorySubtotals(snapshot, accounts, [
       "cash",
       "investments",
       "retirement",
-      "property",
       "other_asset",
-      "liability",
     ]),
+    ...propertyBreakdownLines(snapshot, accounts, property),
+    ...liabilityLines,
   ];
 
   const ins = insuranceTotal(policies);
@@ -121,13 +177,31 @@ export function buildNetWorthBreakdown(
     });
   }
 
+  const carVal = vehicleValue(vehicle);
+  if (carVal > 0) {
+    lines.push({
+      label: vehicle?.makeModel
+        ? `Vehicle (${vehicle.makeModel})`
+        : "Vehicle",
+      amount: carVal,
+      href: "/vehicle",
+    });
+  }
+
   return {
     id: "net-worth",
     title: "Net worth breakdown",
     lines,
     totalLabel: "Total net worth",
-    total: snapshotNetWorth(snapshot, accounts, policies, loans),
-    footnote: `Snapshot ${snapshot.date}`,
+    total: snapshotNetWorth(
+      snapshot,
+      accounts,
+      policies,
+      loans,
+      vehicle,
+      property,
+    ),
+    footnote: `Snapshot ${snapshot.date}. Property is market value minus mortgage.`,
   };
 }
 
@@ -136,6 +210,7 @@ export function buildLiquidNetWorthBreakdown(
   accounts: Account[],
   policies: InsurancePolicy[] | undefined,
   loans: PersonalLoan[] | undefined,
+  vehicle?: VehicleProfile,
 ): StatBreakdown {
   const lines: BreakdownLine[] = [
     ...accountLines(snapshot, accounts, isLiquidSnapshotAccount),
@@ -164,6 +239,16 @@ export function buildLiquidNetWorthBreakdown(
     accounts,
     (a) => !isLiquidSnapshotAccount(a),
   );
+  const carVal = vehicleValue(vehicle);
+  if (carVal > 0) {
+    excluded.push({
+      label: vehicle?.makeModel
+        ? `Vehicle (${vehicle.makeModel})`
+        : "Vehicle",
+      amount: carVal,
+      href: "/vehicle",
+    });
+  }
   if (excluded.length > 0) {
     lines.push({ label: "Excluded (illiquid / property)", note: true, muted: true });
     lines.push(...excluded.map((l) => ({ ...l, muted: true })));
@@ -175,7 +260,8 @@ export function buildLiquidNetWorthBreakdown(
     lines,
     totalLabel: "Liquid net worth",
     total: snapshotLiquidNetWorth(snapshot, accounts, policies, loans),
-    footnote: "Excludes CPF & SRS, property equity, and HDB/mortgage loans.",
+    footnote:
+      "Excludes CPF & SRS, property equity, vehicle value, and HDB/mortgage loans.",
   };
 }
 
@@ -184,6 +270,7 @@ export function buildMostLiquidNetWorthBreakdown(
   accounts: Account[],
   policies: InsurancePolicy[] | undefined,
   loans: PersonalLoan[] | undefined,
+  vehicle?: VehicleProfile,
 ): StatBreakdown {
   const lines: BreakdownLine[] = [
     ...accountLines(snapshot, accounts, isMostLiquidSnapshotAccount),
@@ -206,6 +293,16 @@ export function buildMostLiquidNetWorthBreakdown(
     if (amount > 0) {
       omitted.push({ label: account.name, amount, muted: true });
     }
+  }
+  const carVal = vehicleValue(vehicle);
+  if (carVal > 0) {
+    omitted.push({
+      label: vehicle?.makeModel
+        ? `Vehicle (${vehicle.makeModel})`
+        : "Vehicle",
+      amount: carVal,
+      muted: true,
+    });
   }
 
   if (omitted.length > 0) {
@@ -230,10 +327,19 @@ export function buildMomBreakdown(
   accounts: Account[],
   policies: InsurancePolicy[] | undefined,
   loans: PersonalLoan[] | undefined,
+  vehicle?: VehicleProfile,
+  property?: PropertyProfile,
 ): StatBreakdown {
-  const current = snapshotNetWorth(latest, accounts, policies, loans);
+  const current = snapshotNetWorth(
+    latest,
+    accounts,
+    policies,
+    loans,
+    vehicle,
+    property,
+  );
   const previous = prev
-    ? snapshotNetWorth(prev, accounts, policies, loans)
+    ? snapshotNetWorth(prev, accounts, policies, loans, vehicle, property)
     : null;
 
   const lines: BreakdownLine[] =
@@ -339,6 +445,43 @@ export function buildInvestableBreakdown(
   };
 }
 
+export function buildVehicleBreakdown(
+  vehicle: VehicleProfile | undefined,
+  snapshot: Snapshot,
+  accounts: Account[],
+): StatBreakdown {
+  const val = vehicleValue(vehicle);
+  const loan = carLoanOwed(snapshot, accounts);
+  const lines: BreakdownLine[] = [];
+
+  if (val > 0) {
+    lines.push({
+      label: vehicle?.makeModel ?? "Estimated value",
+      amount: val,
+      href: "/vehicle",
+    });
+  }
+  if (loan > 0) {
+    lines.push({
+      label: "Car loan (Update tab)",
+      amount: -loan,
+      href: "/update",
+    });
+  }
+  if (lines.length === 0) {
+    lines.push({ label: "No vehicle tracked", note: true });
+  }
+
+  return {
+    id: "vehicle",
+    title: "Vehicle",
+    lines,
+    totalLabel: "Net vehicle equity",
+    total: val - loan,
+    footnote: "Vehicle value is in total net worth; car loan is a liability account.",
+  };
+}
+
 export function buildLiabilitiesBreakdown(
   snapshot: Snapshot,
   accounts: Account[],
@@ -376,13 +519,16 @@ export function buildAllDashboardBreakdowns(
 ): StatBreakdown[] {
   const policies = data.insurancePolicies;
   const loans = data.personalLoans;
+  const vehicle = data.vehicle;
+  const property = data.property;
   return [
-    buildNetWorthBreakdown(latest, accounts, policies, loans),
-    buildLiquidNetWorthBreakdown(latest, accounts, policies, loans),
-    buildMostLiquidNetWorthBreakdown(latest, accounts, policies, loans),
-    buildMomBreakdown(latest, prev, accounts, policies, loans),
+    buildNetWorthBreakdown(latest, accounts, policies, loans, vehicle, property),
+    buildLiquidNetWorthBreakdown(latest, accounts, policies, loans, vehicle),
+    buildMostLiquidNetWorthBreakdown(latest, accounts, policies, loans, vehicle),
+    buildMomBreakdown(latest, prev, accounts, policies, loans, vehicle, property),
     buildInsuranceBreakdown(policies),
     buildPersonalLoansBreakdown(loans),
+    buildVehicleBreakdown(vehicle, latest, accounts),
     buildInvestableBreakdown(latest, accounts, policies),
     buildLiabilitiesBreakdown(latest, accounts),
   ];

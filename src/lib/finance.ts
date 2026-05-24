@@ -6,7 +6,9 @@ import type {
   Insight,
   InsurancePolicy,
   PersonalLoan,
+  PropertyProfile,
   Snapshot,
+  VehicleProfile,
 } from "./types";
 
 export const CATEGORY_LABELS: Record<AccountCategory, string> = {
@@ -150,6 +152,145 @@ export function personalLoansTotal(loans: PersonalLoan[] | undefined): number {
     .reduce((sum, l) => sum + (l.principalOutstanding ?? 0), 0);
 }
 
+export function vehicleValue(vehicle: VehicleProfile | undefined): number {
+  if (!vehicle || vehicle.estimatedValue <= 0) return 0;
+  return vehicle.estimatedValue;
+}
+
+/** Car loan balance from latest snapshot (Car loan liability account). */
+export function carLoanOwed(snapshot: Snapshot, accounts: Account[]): number {
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  let total = 0;
+  for (const [id, raw] of Object.entries(snapshot.balances)) {
+    const account = byId.get(id);
+    if (!account || account.archived || account.category !== "liability") {
+      continue;
+    }
+    if (!/car/i.test(account.name)) continue;
+    total += Math.abs(signedBalance(account, raw));
+  }
+  return total;
+}
+
+export function vehicleEquity(
+  vehicle: VehicleProfile | undefined,
+  snapshot: Snapshot,
+  accounts: Account[],
+): number {
+  return vehicleValue(vehicle) - carLoanOwed(snapshot, accounts);
+}
+
+export function isPropertyLinkedLiability(account: Account): boolean {
+  if (account.category !== "liability") return false;
+  const n = account.name.toLowerCase();
+  return (
+    /mortgage|hdb|bank loan|housing loan|home loan/.test(n) && !/car/.test(n)
+  );
+}
+
+export function propertyBalanceSum(
+  snapshot: Snapshot,
+  accounts: Account[],
+): number {
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  let total = 0;
+  for (const [id, raw] of Object.entries(snapshot.balances)) {
+    const account = byId.get(id);
+    if (!account || account.archived || account.category !== "property") {
+      continue;
+    }
+    total += Math.max(0, signedBalance(account, raw));
+  }
+  return total;
+}
+
+/** Mortgage / HDB loan balance from snapshot, or property profile fallback. */
+export function mortgageOwed(
+  snapshot: Snapshot,
+  accounts: Account[],
+  profile?: PropertyProfile,
+): number {
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  let fromSnapshot = 0;
+  for (const [id, raw] of Object.entries(snapshot.balances)) {
+    const account = byId.get(id);
+    if (!account || account.archived || !isPropertyLinkedLiability(account)) {
+      continue;
+    }
+    fromSnapshot += Math.abs(signedBalance(account, raw));
+  }
+  if (fromSnapshot > 0) return fromSnapshot;
+  return profile?.mortgageOutstanding ?? 0;
+}
+
+const PROPERTY_VALUE_TOLERANCE = 5000;
+
+function profileGrossValue(profile: PropertyProfile): number | null {
+  if (profile.manualValue !== undefined && profile.manualValue > 0) {
+    return profile.manualValue;
+  }
+  if (profile.estimatedValue !== undefined && profile.estimatedValue > 0) {
+    return profile.estimatedValue;
+  }
+  return null;
+}
+
+/**
+ * Property account holds net equity (not gross value) while mortgage is also on
+ * the snapshot — exclude the mortgage from net worth to avoid double-counting.
+ */
+export function propertySnapshotIsNetEquity(
+  snapshot: Snapshot,
+  accounts: Account[],
+  profile?: PropertyProfile,
+): boolean {
+  const prop = propertyBalanceSum(snapshot, accounts);
+  const mort = mortgageOwed(snapshot, accounts, profile);
+  if (prop <= 0) return false;
+  if (mort <= 0) return true;
+
+  const propertyAccounts = accounts.filter(
+    (a) => !a.archived && a.category === "property",
+  );
+  if (propertyAccounts.some((a) => /equity/i.test(a.name))) return true;
+
+  const gross = profile ? profileGrossValue(profile) : null;
+  if (gross !== null) {
+    const tol = Math.max(PROPERTY_VALUE_TOLERANCE, gross * 0.02);
+    if (Math.abs(prop - (gross - mort)) <= tol) return true;
+    if (Math.abs(prop - gross) <= tol) return false;
+  }
+
+  return prop < mort;
+}
+
+export function propertyGrossValue(
+  snapshot: Snapshot,
+  accounts: Account[],
+  profile?: PropertyProfile,
+): number {
+  const prop = propertyBalanceSum(snapshot, accounts);
+  const mort = mortgageOwed(snapshot, accounts, profile);
+  if (propertySnapshotIsNetEquity(snapshot, accounts, profile)) {
+    return prop + mort;
+  }
+  const fromProfile = profile ? profileGrossValue(profile) : null;
+  if (fromProfile !== null) return fromProfile;
+  return prop;
+}
+
+/** Property contribution to net worth (market value minus outstanding loan). */
+export function propertyNetEquity(
+  snapshot: Snapshot,
+  accounts: Account[],
+  profile?: PropertyProfile,
+): number {
+  const prop = propertyBalanceSum(snapshot, accounts);
+  const mort = mortgageOwed(snapshot, accounts, profile);
+  if (propertySnapshotIsNetEquity(snapshot, accounts, profile)) return prop;
+  return prop - mort;
+}
+
 function accountBalanceSum(
   snapshot: Snapshot,
   accounts: Account[],
@@ -172,15 +313,7 @@ export function isLiquidSnapshotAccount(account: Account): boolean {
   if (account.category === "retirement" || account.category === "property") {
     return false;
   }
-  if (account.category === "liability") {
-    const n = account.name.toLowerCase();
-    if (
-      /mortgage|hdb|bank loan|housing loan|home loan/.test(n) &&
-      !/car/.test(n)
-    ) {
-      return false;
-    }
-  }
+  if (isPropertyLinkedLiability(account)) return false;
   return true;
 }
 
@@ -197,12 +330,18 @@ export function snapshotNetWorth(
   accounts: Account[],
   insurancePolicies?: InsurancePolicy[],
   personalLoans?: PersonalLoan[],
+  vehicle?: VehicleProfile,
+  property?: PropertyProfile,
 ): number {
-  return (
+  let sum =
     accountBalanceSum(snapshot, accounts) +
     insuranceTotal(insurancePolicies) +
-    personalLoansTotal(personalLoans)
-  );
+    personalLoansTotal(personalLoans) +
+    vehicleValue(vehicle);
+  if (propertySnapshotIsNetEquity(snapshot, accounts, property)) {
+    sum += mortgageOwed(snapshot, accounts, property);
+  }
+  return sum;
 }
 
 /** Net worth excluding CPF/SRS, property equity, and property-linked loans. */
@@ -394,10 +533,26 @@ export function generateInsights(data: FinanceData): Insight[] {
   const totals = categoryTotals(latest, accounts);
   const policies = data.insurancePolicies;
   const loans = data.personalLoans;
-  const netWorth = snapshotNetWorth(latest, accounts, policies, loans);
+  const netWorth = snapshotNetWorth(
+    latest,
+    accounts,
+    policies,
+    loans,
+    data.vehicle,
+    data.property,
+  );
   const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies, loans);
   const prev = previousSnapshot(data, latest);
-  const prevNw = prev ? snapshotNetWorth(prev, accounts, policies, loans) : null;
+  const prevNw = prev
+    ? snapshotNetWorth(
+        prev,
+        accounts,
+        policies,
+        loans,
+        data.vehicle,
+        data.property,
+      )
+    : null;
   const { percent: momPct } = monthOverMonthChange(netWorth, prevNw);
 
   const retTotal = retirementTotal(latest, accounts);
@@ -406,7 +561,7 @@ export function generateInsights(data: FinanceData): Insight[] {
       id: "liquid-nw",
       severity: "info",
       title: "Liquid vs total net worth",
-      body: `Liquid net worth is ${formatCurrency(liquidNw)} (${((liquidNw / netWorth) * 100).toFixed(0)}% of total). Excludes CPF & SRS, property equity, and HDB/mortgage loans; includes insurance surrender values and personal loans receivable.`,
+      body: `Liquid net worth is ${formatCurrency(liquidNw)} (${((liquidNw / netWorth) * 100).toFixed(0)}% of total). Excludes CPF & SRS, property equity, vehicle value, and HDB/mortgage loans; includes insurance surrender values and personal loans receivable.`,
     });
   }
 

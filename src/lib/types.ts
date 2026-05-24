@@ -86,6 +86,20 @@ export type PropertyProfile = {
   mortgageOutstanding?: number;
   /** Override estimated value manually */
   manualValue?: number;
+  /** Last estimated market value from Property tab (SGD) */
+  estimatedValue?: number;
+};
+
+export type VehicleProfile = {
+  /** e.g. Toyota Camry 2.5 */
+  makeModel: string;
+  modelYear?: number;
+  /** Current market / resale value in SGD */
+  estimatedValue: number;
+  plateNumber?: string;
+  notes?: string;
+  /** ISO date when value was last updated */
+  valueAsOf?: string;
 };
 
 export type TradeCategory = "stocks" | "govt" | "robo" | "other";
@@ -142,6 +156,7 @@ export type FinanceData = {
   insurancePolicies?: InsurancePolicy[];
   personalLoans?: PersonalLoan[];
   property?: PropertyProfile;
+  vehicle?: VehicleProfile;
   allocationTargets?: Partial<Record<AccountCategory, number>>;
   settings?: {
     birthYear?: number;

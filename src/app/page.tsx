@@ -20,6 +20,11 @@ import {
   snapshotLiquidNetWorth,
   snapshotMostLiquidNetWorth,
   snapshotNetWorth,
+  vehicleValue,
+  vehicleEquity,
+  propertyNetEquity,
+  propertyGrossValue,
+  mortgageOwed,
   retirementTotal,
   sortSnapshots,
 } from "@/lib/finance";
@@ -54,14 +59,27 @@ export default async function DashboardPage() {
 
   const policies = data.insurancePolicies;
   const loans = data.personalLoans;
-  const netWorth = snapshotNetWorth(latest, accounts, policies, loans);
+  const vehicle = data.vehicle;
+  const property = data.property;
+  const netWorth = snapshotNetWorth(
+    latest,
+    accounts,
+    policies,
+    loans,
+    vehicle,
+    property,
+  );
   const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies, loans);
   const mostLiquidNw = snapshotMostLiquidNetWorth(latest, accounts);
   const cpfSrs = retirementTotal(latest, accounts);
   const insTotal = insuranceTotal(policies);
   const loansTotal = personalLoansTotal(loans);
   const prev = previousSnapshot(data, latest);
-  const prevNw = prev ? snapshotNetWorth(prev, accounts, policies, loans) : null;
+  const prevNw = prev
+    ? snapshotNetWorth(prev, accounts, policies, loans, vehicle, property)
+    : null;
+  const vehicleVal = vehicleValue(vehicle);
+  const vehicleEq = vehicleEquity(vehicle, latest, accounts);
   const prevLiquid = prev
     ? snapshotLiquidNetWorth(prev, accounts, policies, loans)
     : null;
@@ -72,12 +90,24 @@ export default async function DashboardPage() {
   const liquidDelta = monthOverMonthChange(liquidNw, prevLiquid);
   const mostLiquidDelta = monthOverMonthChange(mostLiquidNw, prevMostLiquid);
   const totals = categoryTotals(latest, accounts);
-  const allocation = buildAllocationSlices(
-    allocationPercents(totals).map((x) => ({
-      category: x.category,
-      value: x.value,
-    })),
-  );
+  const propertyNet = propertyNetEquity(latest, accounts, property);
+  const propertyGross = propertyGrossValue(latest, accounts, property);
+  const propertyMortgage = mortgageOwed(latest, accounts, property);
+  const totalsForAllocation = {
+    ...totals,
+    property: propertyNet,
+  };
+  const allocationBase = allocationPercents(totalsForAllocation).map((x) => ({
+    category: x.category,
+    value: x.value,
+  }));
+  if (vehicleVal > 0) {
+    const other = allocationBase.find((x) => x.category === "other_asset");
+    if (other) other.value += vehicleVal;
+    else
+      allocationBase.push({ category: "other_asset" as const, value: vehicleVal });
+  }
+  const allocation = buildAllocationSlices(allocationBase);
 
   const chartData = sortSnapshots(data.snapshots).map((s) => ({
     date: s.date,
@@ -85,7 +115,7 @@ export default async function DashboardPage() {
       month: "short",
       year: "2-digit",
     }),
-    netWorth: snapshotNetWorth(s, accounts, policies, loans),
+    netWorth: snapshotNetWorth(s, accounts, policies, loans, vehicle, property),
     liquidNetWorth: snapshotLiquidNetWorth(s, accounts, policies, loans),
   }));
 
@@ -123,7 +153,7 @@ export default async function DashboardPage() {
             breakdownId: "liquid-net-worth",
             label: "Liquid net worth",
             value: formatCurrency(liquidNw),
-            sub: `Excludes CPF/SRS (${formatCurrency(cpfSrs)}), property & HDB loan`,
+            sub: `Excludes CPF/SRS (${formatCurrency(cpfSrs)}), property, vehicle & HDB loan`,
           },
           {
             breakdownId: "most-liquid-net-worth",
@@ -169,6 +199,20 @@ export default async function DashboardPage() {
               </Link>
             ),
           },
+          ...(vehicleVal > 0
+            ? [
+                {
+                  breakdownId: "vehicle" as const,
+                  label: "Vehicle",
+                  value: formatCurrency(vehicleVal),
+                  sub: (
+                    <Link href="/vehicle" className="text-accent hover:underline">
+                      Net equity {formatCurrency(vehicleEq)}
+                    </Link>
+                  ),
+                },
+              ]
+            : []),
           {
             breakdownId: "investable",
             label: "Investable (incl. CPF)",
@@ -356,8 +400,59 @@ export default async function DashboardPage() {
                   </td>
                 </tr>
               ) : null}
+              {vehicleVal > 0 ? (
+                <tr className="border-b border-surface-border/50">
+                  <td className="py-2.5 text-primary">
+                    <Link href="/vehicle" className="hover:text-accent">
+                      Vehicle
+                      {vehicle?.makeModel ? ` (${vehicle.makeModel})` : ""}
+                    </Link>
+                  </td>
+                  <td className="py-2.5 text-right font-mono tabular-nums text-primary">
+                    {formatCurrency(vehicleVal)}
+                  </td>
+                </tr>
+              ) : null}
+              {propertyNet > 0 ? (
+                <>
+                  <tr className="border-b border-surface-border/50">
+                    <td className="py-2.5 text-primary">
+                      <Link href="/property" className="hover:text-accent">
+                        Property (value)
+                      </Link>
+                    </td>
+                    <td className="py-2.5 text-right font-mono tabular-nums text-primary">
+                      {formatCurrency(propertyGross)}
+                    </td>
+                  </tr>
+                  {propertyMortgage > 0 ? (
+                    <tr className="border-b border-surface-border/50">
+                      <td className="py-2.5 pl-4 text-secondary">
+                        Less mortgage / HDB loan
+                      </td>
+                      <td className="py-2.5 text-right font-mono tabular-nums text-negative">
+                        −{formatCurrency(propertyMortgage)}
+                      </td>
+                    </tr>
+                  ) : null}
+                  <tr className="border-b border-surface-border/50">
+                    <td className="py-2.5 pl-4 font-medium text-primary">
+                      Property (net equity)
+                    </td>
+                    <td className="py-2.5 text-right font-mono tabular-nums text-primary">
+                      {formatCurrency(propertyNet)}
+                    </td>
+                  </tr>
+                </>
+              ) : null}
               {CATEGORY_ORDER.map((cat) => {
-                const v = totals[cat];
+                if (cat === "property") return null;
+                let v = totals[cat];
+                if (cat === "liability") {
+                  v =
+                    totals.liability +
+                    (propertyMortgage > 0 ? propertyMortgage : 0);
+                }
                 if (v === 0 && cat !== "liability") return null;
                 return (
                   <tr key={cat} className="border-b border-surface-border/50">

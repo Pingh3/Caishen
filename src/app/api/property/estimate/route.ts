@@ -34,7 +34,14 @@ export async function POST(request: Request) {
 
   if (save) {
     const data = await readFinanceData();
-    await writeFinanceData({ ...data, property: profile });
+    await writeFinanceData({
+      ...data,
+      property: {
+        ...profile,
+        estimatedValue: estimate.estimatedValue,
+        mortgageOutstanding: estimate.mortgageOutstanding,
+      },
+    });
   }
 
   return NextResponse.json(estimate);

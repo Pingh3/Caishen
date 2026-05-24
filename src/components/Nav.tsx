@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeIndicator } from "@/components/ThemeIndicator";
+import { APP_NAME } from "@/lib/app";
 
 const links = [
   { href: "/", label: "Dashboard" },
   { href: "/journal", label: "Journal" },
   { href: "/investments", label: "Investments" },
   { href: "/property", label: "Property" },
+  { href: "/vehicle", label: "Vehicle" },
   { href: "/insurance", label: "Insurance" },
   { href: "/loans", label: "Loans" },
   { href: "/update", label: "Update" },
@@ -29,7 +31,7 @@ export function Nav() {
           <ThemeIndicator />
         </div>
         <h1 className="text-xl font-semibold tracking-tight text-primary">
-          Caishen
+          {APP_NAME}
         </h1>
       </div>
       <nav className="flex flex-wrap gap-1 rounded-xl border border-surface-border bg-surface-raised p-1">
