@@ -1,3 +1,4 @@
+import { ensureCoreAccounts } from "./finance";
 import type { FinanceData, Trade } from "./types";
 
 function normalizeTrade(t: Trade): Trade {
@@ -9,16 +10,18 @@ function normalizeTrade(t: Trade): Trade {
 }
 
 export function normalizeFinanceData(raw: FinanceData): FinanceData {
-  return {
+  const base: FinanceData = {
     ...raw,
     accounts: raw.accounts ?? [],
     snapshots: raw.snapshots ?? [],
     holdings: raw.holdings ?? [],
     trades: (raw.trades ?? []).map(normalizeTrade),
     insurancePolicies: raw.insurancePolicies ?? [],
+    personalLoans: raw.personalLoans ?? [],
     settings: raw.settings ?? {
       emergencyFundMonths: 6,
       timezone: "Asia/Singapore",
     },
   };
+  return ensureCoreAccounts(base);
 }

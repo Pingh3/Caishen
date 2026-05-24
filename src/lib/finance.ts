@@ -42,6 +42,42 @@ export const CATEGORY_ORDER: AccountCategory[] = [
   "liability",
 ];
 
+/** Always present once missing from saved data (e.g. after deploy). */
+export const CORE_ACCOUNTS: Account[] = [
+  {
+    id: "market-funds",
+    name: "Market Funds",
+    category: "investments",
+    notes: "Funds / ETFs (manual)",
+  },
+  {
+    id: "car-loan",
+    name: "Car loan",
+    category: "liability",
+    isLiability: true,
+  },
+];
+
+export function ensureCoreAccounts(data: FinanceData): FinanceData {
+  const accounts = [...data.accounts];
+  let added = false;
+
+  for (const core of CORE_ACCOUNTS) {
+    const exists = accounts.some(
+      (a) =>
+        !a.archived &&
+        (a.id === core.id ||
+          a.name.trim().toLowerCase() === core.name.toLowerCase()),
+    );
+    if (!exists) {
+      accounts.push(core);
+      added = true;
+    }
+  }
+
+  return added ? { ...data, accounts } : data;
+}
+
 export function formatCurrency(n: number, compact = false): string {
   if (compact && Math.abs(n) >= 1_000_000) {
     return new Intl.NumberFormat("en-SG", {

@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { get, put } from "@vercel/blob";
 import { normalizeFinanceData } from "./normalize";
-import type { FinanceData } from "./types";
+import type { Account, FinanceData } from "./types";
 
 const DATA_PATH = path.join(process.cwd(), "data", "finance.json");
 const BLOB_PATHNAME = "finance.json";
@@ -42,10 +42,21 @@ async function readFromDisk(): Promise<FinanceData> {
   return normalizeFinanceData(JSON.parse(raw) as FinanceData);
 }
 
+function accountIdsAdded(before: Account[], after: Account[]): boolean {
+  const beforeIds = new Set(before.map((a) => a.id));
+  return after.some((a) => !beforeIds.has(a.id));
+}
+
 export async function readFinanceData(): Promise<FinanceData> {
   if (isBlobStorageEnabled()) {
     const blobData = await readFromBlob();
-    if (blobData) return normalizeFinanceData(blobData);
+    if (blobData) {
+      const normalized = normalizeFinanceData(blobData);
+      if (accountIdsAdded(blobData.accounts ?? [], normalized.accounts)) {
+        await writeToBlob(normalized);
+      }
+      return normalized;
+    }
   }
 
   try {
