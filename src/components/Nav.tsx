@@ -23,7 +23,7 @@ export function Nav() {
   const pathname = usePathname();
 
   return (
-    <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-medium uppercase tracking-widest text-muted">
@@ -36,24 +36,29 @@ export function Nav() {
           {APP_NAME}
         </h1>
       </div>
-      <nav className="flex flex-wrap gap-1 rounded-xl border border-surface-border bg-surface-raised p-1">
-        {links.map(({ href, label }) => {
-          const active =
-            href === "/" ? pathname === "/" : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`rounded-lg px-3 py-1.5 text-sm transition ${
-                active
-                  ? "bg-accent/15 text-accent"
-                  : "text-secondary hover:text-primary"
-              }`}
-            >
-              {label}
-            </Link>
-          );
-        })}
+      <nav
+        className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-surface-border bg-surface-raised p-1 [-ms-overflow-style:none] [scrollbar-width:thin] sm:flex-1"
+        aria-label="Main"
+      >
+        <div className="flex flex-nowrap items-center gap-0.5">
+          {links.map(({ href, label }) => {
+            const active =
+              href === "/" ? pathname === "/" : pathname.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-sm whitespace-nowrap transition sm:px-3 ${
+                  active
+                    ? "bg-accent/15 text-accent"
+                    : "text-secondary hover:text-primary"
+                }`}
+              >
+                {label}
+              </Link>
+            );
+          })}
+        </div>
       </nav>
     </header>
   );
