@@ -18,6 +18,7 @@ import {
   insuranceTotal,
   personalLoansTotal,
   snapshotLiquidNetWorth,
+  snapshotMostLiquidNetWorth,
   snapshotNetWorth,
   retirementTotal,
   sortSnapshots,
@@ -55,6 +56,7 @@ export default async function DashboardPage() {
   const loans = data.personalLoans;
   const netWorth = snapshotNetWorth(latest, accounts, policies, loans);
   const liquidNw = snapshotLiquidNetWorth(latest, accounts, policies, loans);
+  const mostLiquidNw = snapshotMostLiquidNetWorth(latest, accounts);
   const cpfSrs = retirementTotal(latest, accounts);
   const insTotal = insuranceTotal(policies);
   const loansTotal = personalLoansTotal(loans);
@@ -63,8 +65,12 @@ export default async function DashboardPage() {
   const prevLiquid = prev
     ? snapshotLiquidNetWorth(prev, accounts, policies, loans)
     : null;
+  const prevMostLiquid = prev
+    ? snapshotMostLiquidNetWorth(prev, accounts)
+    : null;
   const { delta, percent } = monthOverMonthChange(netWorth, prevNw);
   const liquidDelta = monthOverMonthChange(liquidNw, prevLiquid);
+  const mostLiquidDelta = monthOverMonthChange(mostLiquidNw, prevMostLiquid);
   const totals = categoryTotals(latest, accounts);
   const allocation = buildAllocationSlices(
     allocationPercents(totals).map((x) => ({
@@ -118,6 +124,15 @@ export default async function DashboardPage() {
             label: "Liquid net worth",
             value: formatCurrency(liquidNw),
             sub: `Excludes CPF/SRS (${formatCurrency(cpfSrs)}), property & HDB loan`,
+          },
+          {
+            breakdownId: "most-liquid-net-worth",
+            label: "Most liquid net worth",
+            value: formatCurrency(mostLiquidNw),
+            sub:
+              mostLiquidDelta.percent !== null
+                ? `Cash & investments · ${formatPercent(mostLiquidDelta.percent, true)} MoM`
+                : "Cash & investments only",
           },
           {
             breakdownId: "mom",

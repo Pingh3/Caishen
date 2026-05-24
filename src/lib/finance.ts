@@ -219,6 +219,25 @@ export function snapshotLiquidNetWorth(
   );
 }
 
+/** Cash + investments only (banks, brokerages, market funds). */
+export function isMostLiquidSnapshotAccount(account: Account): boolean {
+  return account.category === "cash" || account.category === "investments";
+}
+
+function mostLiquidAccountBalanceSum(
+  snapshot: Snapshot,
+  accounts: Account[],
+): number {
+  return accountBalanceSum(snapshot, accounts, [], isMostLiquidSnapshotAccount);
+}
+
+export function snapshotMostLiquidNetWorth(
+  snapshot: Snapshot,
+  accounts: Account[],
+): number {
+  return mostLiquidAccountBalanceSum(snapshot, accounts);
+}
+
 export function retirementTotal(
   snapshot: Snapshot,
   accounts: Account[],

@@ -4,9 +4,11 @@ import {
   formatCurrency,
   insuranceTotal,
   isLiquidSnapshotAccount,
+  isMostLiquidSnapshotAccount,
   personalLoansTotal,
   signedBalance,
   snapshotLiquidNetWorth,
+  snapshotMostLiquidNetWorth,
   snapshotNetWorth,
 } from "./finance";
 import type {
@@ -177,6 +179,51 @@ export function buildLiquidNetWorthBreakdown(
   };
 }
 
+export function buildMostLiquidNetWorthBreakdown(
+  snapshot: Snapshot,
+  accounts: Account[],
+  policies: InsurancePolicy[] | undefined,
+  loans: PersonalLoan[] | undefined,
+): StatBreakdown {
+  const lines: BreakdownLine[] = [
+    ...accountLines(snapshot, accounts, isMostLiquidSnapshotAccount),
+  ];
+
+  const omitted: BreakdownLine[] = [];
+  const ins = insuranceTotal(policies);
+  if (ins > 0) {
+    omitted.push({ label: "Insurance (surrender)", amount: ins, muted: true });
+  }
+  const loanRecv = personalLoansTotal(loans);
+  if (loanRecv > 0) {
+    omitted.push({ label: "Loans to others", amount: loanRecv, muted: true });
+  }
+  for (const [id, raw] of Object.entries(snapshot.balances)) {
+    const account = accounts.find((a) => a.id === id && !a.archived);
+    if (!account || account.category !== "liability") continue;
+    if (!/car/i.test(account.name)) continue;
+    const amount = Math.abs(signedBalance(account, raw));
+    if (amount > 0) {
+      omitted.push({ label: account.name, amount, muted: true });
+    }
+  }
+
+  if (omitted.length > 0) {
+    lines.push({ label: "Not included in this total", note: true, muted: true });
+    lines.push(...omitted);
+  }
+
+  return {
+    id: "most-liquid-net-worth",
+    title: "Most liquid net worth",
+    lines,
+    totalLabel: "Most liquid net worth",
+    total: snapshotMostLiquidNetWorth(snapshot, accounts),
+    footnote:
+      "Sum of cash and investment accounts only (e.g. DBS, UOB, Moomoo, Syfe, Market Funds).",
+  };
+}
+
 export function buildMomBreakdown(
   latest: Snapshot,
   prev: Snapshot | null,
@@ -332,6 +379,7 @@ export function buildAllDashboardBreakdowns(
   return [
     buildNetWorthBreakdown(latest, accounts, policies, loans),
     buildLiquidNetWorthBreakdown(latest, accounts, policies, loans),
+    buildMostLiquidNetWorthBreakdown(latest, accounts, policies, loans),
     buildMomBreakdown(latest, prev, accounts, policies, loans),
     buildInsuranceBreakdown(policies),
     buildPersonalLoansBreakdown(loans),
