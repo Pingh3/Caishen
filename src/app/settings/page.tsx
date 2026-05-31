@@ -5,6 +5,10 @@ import Link from "next/link";
 import { PrivacyToggle } from "@/components/PrivacyToggle";
 import { persistFinanceData } from "@/lib/client-finance";
 import { CATEGORY_LABELS } from "@/lib/finance";
+import {
+  DEFAULT_MAX_STOCKS_FUNDS_PCT,
+  DEFAULT_SG_SHARE_OF_STOCKS_FUNDS_PCT,
+} from "@/lib/most-liquid-allocation";
 import type { AccountCategory, FinanceData } from "@/lib/types";
 
 const TARGET_CATEGORIES: AccountCategory[] = [
@@ -20,6 +24,12 @@ export default function SettingsPage() {
   const [monthlyIncome, setMonthlyIncome] = useState("");
   const [annualBonus, setAnnualBonus] = useState("");
   const [projectionReturnPct, setProjectionReturnPct] = useState("5");
+  const [maxStocksFundsPct, setMaxStocksFundsPct] = useState(
+    String(DEFAULT_MAX_STOCKS_FUNDS_PCT),
+  );
+  const [sgShareOfStocksFundsPct, setSgShareOfStocksFundsPct] = useState(
+    String(DEFAULT_SG_SHARE_OF_STOCKS_FUNDS_PCT),
+  );
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -37,6 +47,18 @@ export default function SettingsPage() {
         setAnnualBonus(json.settings?.annualBonus?.toString() ?? "");
         setProjectionReturnPct(
           String(json.settings?.projectionReturnPct ?? 5),
+        );
+        setMaxStocksFundsPct(
+          String(
+            json.settings?.mostLiquidPlan?.maxStocksFundsPct ??
+              DEFAULT_MAX_STOCKS_FUNDS_PCT,
+          ),
+        );
+        setSgShareOfStocksFundsPct(
+          String(
+            json.settings?.mostLiquidPlan?.sgShareOfStocksFundsPct ??
+              DEFAULT_SG_SHARE_OF_STOCKS_FUNDS_PCT,
+          ),
         );
         const t: Record<string, string> = {};
         for (const c of TARGET_CATEGORIES) {
@@ -62,6 +84,7 @@ export default function SettingsPage() {
     const next: FinanceData = {
       ...data,
       settings: {
+        ...data.settings,
         birthYear: birthYear ? Number(birthYear) : undefined,
         emergencyFundMonths: Number(emergencyMonths) || 6,
         monthlyIncome: monthlyIncome
@@ -73,6 +96,12 @@ export default function SettingsPage() {
         projectionReturnPct: projectionReturnPct
           ? Number(projectionReturnPct)
           : 5,
+        mostLiquidPlan: {
+          maxStocksFundsPct: Number(maxStocksFundsPct) || DEFAULT_MAX_STOCKS_FUNDS_PCT,
+          sgShareOfStocksFundsPct:
+            Number(sgShareOfStocksFundsPct) ||
+            DEFAULT_SG_SHARE_OF_STOCKS_FUNDS_PCT,
+        },
       },
       allocationTargets:
         Object.keys(allocationTargets).length > 0
@@ -201,6 +230,43 @@ export default function SettingsPage() {
                 max={24}
                 value={emergencyMonths}
                 onChange={(e) => setEmergencyMonths(e.target.value)}
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset className="rounded-xl border border-surface-border bg-surface-raised p-4">
+          <legend className="px-1 text-sm font-medium text-zinc-300">
+            Most liquid allocation plan
+          </legend>
+          <p className="mt-1 text-xs text-zinc-500">
+            Targets for the{" "}
+            <Link href="/" className="text-accent hover:underline">
+              most liquid allocation
+            </Link>{" "}
+            chart (cash + investment accounts).
+          </p>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm">
+              <span className="text-zinc-400">Max stocks &amp; funds %</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="mt-1 w-full font-mono"
+                value={maxStocksFundsPct}
+                onChange={(e) => setMaxStocksFundsPct(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-zinc-400">SG share of stocks &amp; funds %</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="mt-1 w-full font-mono"
+                value={sgShareOfStocksFundsPct}
+                onChange={(e) => setSgShareOfStocksFundsPct(e.target.value)}
               />
             </label>
           </div>

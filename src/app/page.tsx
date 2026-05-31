@@ -1,6 +1,7 @@
 import { AllocationChart } from "@/components/AllocationChart";
 import { DashboardStats } from "@/components/DashboardStats";
 import { InsightsPanel } from "@/components/InsightsPanel";
+import { MostLiquidAllocationChart } from "@/components/MostLiquidAllocationChart";
 import { NetWorthChart } from "@/components/NetWorthChart";
 import { buildAllDashboardBreakdowns } from "@/lib/dashboard-breakdown";
 import {
@@ -28,7 +29,11 @@ import {
   retirementTotal,
   sortSnapshots,
 } from "@/lib/finance";
-import { fetchFxRates } from "@/lib/market";
+import { fetchFxRates, fetchQuotesForHoldings } from "@/lib/market";
+import {
+  buildMostLiquidAllocation,
+  mergePortfolioHoldings,
+} from "@/lib/most-liquid-allocation";
 import { readFinanceData } from "@/lib/storage";
 import { buildProjections } from "@/lib/projection";
 import { isHideAmountsEnabled, PRIVACY_COOKIE } from "@/lib/privacy";
@@ -116,6 +121,18 @@ export default async function DashboardPage() {
   }
   const allocation = buildAllocationSlices(allocationBase);
 
+  const fx = await fetchFxRates();
+  const portfolioHoldings = mergePortfolioHoldings(data);
+  const holdingQuotes = await fetchQuotesForHoldings(portfolioHoldings);
+  const mostLiquidAllocation = buildMostLiquidAllocation(
+    latest,
+    accounts,
+    portfolioHoldings,
+    holdingQuotes,
+    fx,
+    data.settings?.mostLiquidPlan,
+  );
+
   const chartData = sortSnapshots(data.snapshots).map((s) => ({
     date: s.date,
     label: new Date(s.date).toLocaleDateString("en-US", {
@@ -131,7 +148,6 @@ export default async function DashboardPage() {
 
   const breakdowns = buildAllDashboardBreakdowns(data, latest, prev, accounts);
 
-  const fx = await fetchFxRates();
   const journalStats = computeJournalStats(
     data.trades ?? [],
     new Map(),
@@ -383,6 +399,27 @@ export default async function DashboardPage() {
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-surface-border bg-surface-raised p-5">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+          <div>
+            <h2 className="text-sm font-medium text-primary">
+              Most liquid allocation
+            </h2>
+            <p className="text-xs text-muted">
+              Cash &amp; investment accounts only · {fc(mostLiquidNw)} total
+            </p>
+          </div>
+          <p className="text-xs text-muted">
+            Plan: max {mostLiquidAllocation.targets.maxStocksFundsPct}% stocks
+            &amp; funds · {mostLiquidAllocation.targets.sgShareOfStocksFundsPct}
+            % SG within that
+          </p>
+        </div>
+        <div className="mt-4">
+          <MostLiquidAllocationChart allocation={mostLiquidAllocation} />
         </div>
       </section>
 

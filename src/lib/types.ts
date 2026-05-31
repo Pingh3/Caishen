@@ -157,6 +157,13 @@ export type InvestmentPhilosophy = {
   updatedAt?: string;
 };
 
+export type MostLiquidPlan = {
+  /** Max % of most liquid net worth in stocks + funds (default 70) */
+  maxStocksFundsPct?: number;
+  /** Target % of the stocks/funds slice in SG stocks (default 50) */
+  sgShareOfStocksFundsPct?: number;
+};
+
 export type FinanceData = {
   accounts: Account[];
   snapshots: Snapshot[];
@@ -178,6 +185,8 @@ export type FinanceData = {
     annualBonus?: number;
     /** Expected annual investment return % for projections (default 5) */
     projectionReturnPct?: number;
+    /** Most-liquid allocation plan (dashboard chart) */
+    mostLiquidPlan?: MostLiquidPlan;
   };
 };
 
