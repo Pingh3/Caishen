@@ -9,6 +9,7 @@ import { APP_NAME } from "@/lib/app";
 const links = [
   { href: "/", label: "Dashboard" },
   { href: "/journal", label: "Journal" },
+  { href: "/philosophy", label: "Philosophy" },
   { href: "/investments", label: "Investments" },
   { href: "/property", label: "Property" },
   { href: "/vehicle", label: "Vehicle" },
@@ -32,7 +33,7 @@ export function Nav() {
           <ThemeIndicator />
           <PrivacyToggle />
         </div>
-        <h1 className="text-xl font-semibold tracking-tight text-primary">
+        <h1 className="text-lg font-semibold tracking-tight text-primary">
           {APP_NAME}
         </h1>
       </div>
@@ -44,7 +45,7 @@ export function Nav() {
             <Link
               key={href}
               href={href}
-              className={`rounded-lg px-3 py-1.5 text-sm transition ${
+              className={`rounded-lg px-2.5 py-1 text-sm transition ${
                 active
                   ? "bg-accent/15 text-accent"
                   : "text-secondary hover:text-primary"

@@ -148,6 +148,15 @@ export type Trade = {
   notes?: string;
 };
 
+export type InvestmentPhilosophy = {
+  /** Rules, mindset, and process for trading */
+  trading?: string;
+  /** Long-term investing principles and allocation beliefs */
+  investing?: string;
+  /** ISO date when last saved */
+  updatedAt?: string;
+};
+
 export type FinanceData = {
   accounts: Account[];
   snapshots: Snapshot[];
@@ -157,6 +166,7 @@ export type FinanceData = {
   personalLoans?: PersonalLoan[];
   property?: PropertyProfile;
   vehicle?: VehicleProfile;
+  philosophy?: InvestmentPhilosophy;
   allocationTargets?: Partial<Record<AccountCategory, number>>;
   settings?: {
     birthYear?: number;

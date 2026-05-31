@@ -24,8 +24,13 @@
   --accent-muted: 37 99 168;
 }
 
+html {
+  font-size: 14px;
+}
+
 body {
-  @apply bg-surface text-primary antialiased;
+  @apply bg-surface font-sans text-primary antialiased;
+  font-family: Calibri, Candara, "Segoe UI", system-ui, sans-serif;
 }
 
 input,

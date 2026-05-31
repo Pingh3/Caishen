@@ -26,8 +26,16 @@ const config: Config = {
         negative: "#ef4444",
       },
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "system-ui", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
+        sans: ["Calibri", "Candara", "Segoe UI", "system-ui", "sans-serif"],
+        mono: ["Calibri", "Candara", "Segoe UI", "system-ui", "sans-serif"],
+      },
+      fontSize: {
+        xs: ["0.6875rem", { lineHeight: "1rem" }],
+        sm: ["0.8125rem", { lineHeight: "1.25rem" }],
+        base: ["0.875rem", { lineHeight: "1.375rem" }],
+        lg: ["1rem", { lineHeight: "1.5rem" }],
+        xl: ["1.125rem", { lineHeight: "1.625rem" }],
+        "2xl": ["1.25rem", { lineHeight: "1.75rem" }],
       },
     },
   },

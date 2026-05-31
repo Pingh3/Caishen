@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import { Nav } from "@/components/Nav";
 import { PrivacyProvider } from "@/components/PrivacyProvider";
@@ -7,16 +6,6 @@ import { APP_NAME } from "@/lib/app";
 import { isHideAmountsEnabled, PRIVACY_COOKIE } from "@/lib/privacy";
 import { ThemeProvider, ThemeScript } from "@/components/ThemeProvider";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: {
@@ -41,9 +30,7 @@ export default async function RootLayout({
       <head>
         <ThemeScript />
       </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-screen font-sans`}
-      >
+      <body className="min-h-screen font-sans">
         <ThemeProvider>
           <PrivacyProvider initialHide={hideAmounts}>
             <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-12 pt-6 sm:px-6">
