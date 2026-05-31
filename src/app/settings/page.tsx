@@ -149,7 +149,7 @@ export default function SettingsPage() {
           </legend>
           <p className="mt-1 text-xs text-zinc-500">
             Hide dollar amounts and percentages across the app (shown as{" "}
-            <span className="font-mono">xxx</span>). Useful when sharing your
+            <span className="font-mono">***</span>). Useful when sharing your
             screen.
           </p>
           <div className="mt-3">

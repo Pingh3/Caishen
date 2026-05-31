@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { AdvisorChatbot } from "@/components/AdvisorChatbot";
 import { Nav } from "@/components/Nav";
 import { PrivacyProvider } from "@/components/PrivacyProvider";
 import { APP_NAME } from "@/lib/app";
@@ -36,6 +37,7 @@ export default async function RootLayout({
             <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-12 pt-6 sm:px-6">
               <Nav />
               <main className="mt-8 flex-1">{children}</main>
+              <AdvisorChatbot />
             </div>
           </PrivacyProvider>
         </ThemeProvider>
