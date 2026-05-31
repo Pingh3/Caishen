@@ -48,14 +48,73 @@ export function normalizeSymbol(symbol: string): string {
     .replace(/\.HK$/i, "");
 }
 
-function yahooSymbol(symbol: string, market: StockMarket): string {
+/** Common names typed instead of SGX tickers (Yahoo uses numeric codes). */
+const SG_TICKER_ALIASES: Record<string, string> = {
+  DBS: "D05",
+  UOB: "U11",
+  OCBC: "O39",
+  SIA: "C6L",
+  SINGTEL: "Z74",
+  CAPLAND: "C31",
+  CAPITALAND: "C31",
+  WILMAR: "F34",
+  SATS: "S58",
+  KEPPEL: "BN4",
+  SEMBCORP: "U96",
+  MAPLETREE: "ME8U",
+};
+
+/** Map company-style symbols to Yahoo SGX tickers (e.g. DBS → D05). */
+export function normalizeSgTicker(symbol: string): string {
   const base = normalizeSymbol(symbol);
-  if (market === "SG") return `${base}.SI`;
+  return SG_TICKER_ALIASES[base] ?? base;
+}
+
+export function yahooChartSymbol(symbol: string, market: StockMarket): string {
+  const base = normalizeSymbol(symbol);
+  if (market === "SG") return `${normalizeSgTicker(base)}.SI`;
   if (market === "HK") {
     if (/^\d+$/.test(base)) return `${base.padStart(4, "0")}.HK`;
     return `${base}.HK`;
   }
   return base;
+}
+
+const YAHOO_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+};
+
+/** Resolve a working Yahoo chart symbol (uses meta.symbol when Yahoo canonicalizes). */
+export async function resolveYahooChartSymbol(
+  symbol: string,
+  market: StockMarket,
+): Promise<string> {
+  const primary = yahooChartSymbol(symbol, market);
+  if (market !== "SG") return primary;
+
+  const candidates = [
+    primary,
+    `${normalizeSymbol(symbol)}.SI`,
+  ].filter((v, i, a) => a.indexOf(v) === i);
+
+  for (const ySym of candidates) {
+    try {
+      const res = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySym)}?interval=1d&range=5d`,
+        { headers: YAHOO_HEADERS, next: { revalidate: 3600 } },
+      );
+      if (!res.ok) continue;
+      const json = (await res.json()) as YahooChart;
+      const meta = json.chart?.result?.[0]?.meta;
+      if (meta?.symbol) return meta.symbol;
+      if (meta?.regularMarketPrice !== undefined) return ySym;
+    } catch {
+      /* try next candidate */
+    }
+  }
+
+  return primary;
 }
 
 export function fxForMarket(market: StockMarket, fx: FxRates): number {
@@ -76,6 +135,7 @@ type YahooChart = {
   chart?: {
     result?: {
       meta?: {
+        symbol?: string;
         regularMarketPrice?: number;
         chartPreviousClose?: number;
         currency?: string;
@@ -107,12 +167,12 @@ export async function fetchQuote(
   fx: FxRates,
 ): Promise<QuoteResult | null> {
   const base = normalizeSymbol(symbol);
-  const ySym = yahooSymbol(base, market);
+  const ySym = yahooChartSymbol(base, market);
   try {
     const res = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySym)}?interval=1d&range=1d`,
       {
-        headers: { "User-Agent": "Mozilla/5.0" },
+        headers: YAHOO_HEADERS,
         next: { revalidate: 60 },
       },
     );

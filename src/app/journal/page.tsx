@@ -229,7 +229,9 @@ export default function JournalPage() {
       );
       const json = await res.json();
       if (res.ok) {
-        const sym = normalizeSymbol(raw);
+        const sym = normalizeSymbol(
+          (json.quote?.symbol as string | undefined) ?? raw,
+        );
         const name = (json.quote?.name as string | undefined)?.trim();
         setForm((f) => ({
           ...f,
@@ -380,6 +382,7 @@ export default function JournalPage() {
       const json = (await res.json()) as {
         filled?: number;
         skipped?: number;
+        skips?: { symbol: string; reason: string }[];
         error?: string;
       };
       if (!res.ok) {
@@ -391,16 +394,26 @@ export default function JournalPage() {
       await refreshQuotes(refreshed.trades ?? []);
       const filled = json.filled ?? 0;
       const skipped = json.skipped ?? 0;
+      const skipList = json.skips ?? [];
       if (filled === 0) {
+        const detail =
+          skipList.length > 0
+            ? ` ${skipList.map((s) => `${s.symbol}: ${s.reason}`).join(" · ")}`
+            : "";
         setMsg(
-          `No Yahoo dividends found in holding periods (${skipped} skipped).`,
+          `No Yahoo dividends found in holding periods (${skipped} skipped).${detail}`,
           "err",
         );
         return;
       }
+      const partial =
+        skipList.length > 0
+          ? ` · Skipped: ${skipList.map((s) => s.symbol).join(", ")}`
+          : "";
       setMsg(
         `Filled SG dividends on ${filled} trade(s)${filter === "all" || filter === "sg" ? "" : ` (${filterLabel})`}` +
           (skipped > 0 ? ` · ${skipped} with no ex-dates in window` : "") +
+          partial +
           ".",
       );
     } catch {
@@ -800,8 +813,8 @@ export default function JournalPage() {
                 <th className="px-3 py-3 text-right">Entry</th>
                 <th className="px-3 py-3 text-right">Last/Exit</th>
                 <th className="px-3 py-3 text-right">Comm.</th>
-                <th className="px-3 py-3 text-right">Div./share (net)</th>
-                <th className="px-3 py-3 text-right">Div. total (net)</th>
+                <th className="px-3 py-3 text-right">Div./share</th>
+                <th className="px-3 py-3 text-right">Div. total</th>
                 <th className="px-3 py-3 text-right">P&amp;L</th>
                 <th className="px-3 py-3" />
               </tr>
@@ -855,10 +868,14 @@ export default function JournalPage() {
                       {comm > 0 ? priceFmt(comm) : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {div ? priceFmt(div.perShareNet) : "-"}
+                      {div && Number.isFinite(div.perShareNet)
+                        ? priceFmt(div.perShareNet)
+                        : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-muted">
-                      {div ? priceFmt(div.netTotal) : "-"}
+                      {div && Number.isFinite(div.netTotal)
+                        ? priceFmt(div.netTotal)
+                        : "-"}
                     </td>
                     <td
                       className={`px-3 py-2.5 text-right font-mono text-xs ${

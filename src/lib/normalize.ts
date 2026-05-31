@@ -1,14 +1,19 @@
 import { ensureCoreAccounts } from "./finance";
+import { normalizeTradeDividends } from "./dividends";
 import type { FinanceData, Trade } from "./types";
 
 function normalizeTrade(t: Trade): Trade {
-  return {
+  const quantity = Number(t.quantity);
+  const entryPrice = Number(t.entryPrice);
+  const base: Trade = {
     ...t,
+    quantity: Number.isFinite(quantity) ? quantity : t.quantity,
+    entryPrice: Number.isFinite(entryPrice) ? entryPrice : t.entryPrice,
     entryCommission:
       t.entryCommission ?? (t.fees !== undefined ? t.fees : undefined),
   };
+  return normalizeTradeDividends(base);
 }
-
 export function normalizeFinanceData(raw: FinanceData): FinanceData {
   const base: FinanceData = {
     ...raw,

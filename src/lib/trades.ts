@@ -46,7 +46,8 @@ export function tradePnlNative(
   const price = trade.exitPrice ?? markPrice;
   if (price === undefined) return null;
   const proceeds =
-    trade.quantity * price + (trade.dividendIncome ?? 0);
+    trade.quantity * price +
+    (Number.isFinite(trade.dividendIncome ?? NaN) ? (trade.dividendIncome ?? 0) : 0);
   const pnl = proceeds - cost - tradeTotalCommission(trade);
   return { pnl, pnlPct: (pnl / cost) * 100, cost };
 }

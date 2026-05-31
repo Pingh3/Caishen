@@ -1,5 +1,5 @@
 import type { DividendPayment, StockMarket, Trade } from "./types";
-import { normalizeSymbol } from "./market";
+import { resolveYahooChartSymbol } from "./market";
 
 /** US dividend withholding for non-US tax residents (e.g. via broker). */
 export const US_DIVIDEND_WHT_RATE = 0.3;
@@ -19,14 +19,109 @@ export function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function yahooSymbol(symbol: string, market: StockMarket): string {
-  const base = normalizeSymbol(symbol);
-  if (market === "SG") return `${base}.SI`;
-  if (market === "HK") {
-    if (/^\d+$/.test(base)) return `${base.padStart(4, "0")}.HK`;
-    return `${base}.HK`;
+function finiteMoney(n: unknown): number | undefined {
+  const x = typeof n === "number" ? n : Number(n);
+  return Number.isFinite(x) ? roundMoney(x) : undefined;
+}
+
+function sumMoney(values: number[]): number | undefined {
+  let total = 0;
+  for (const value of values) {
+    if (!Number.isFinite(value)) return undefined;
+    total += value;
   }
+  return roundMoney(total);
+}
+
+/** Repair legacy or partial payment rows; drop rows that cannot be recovered. */
+export function sanitizeDividendPayments(
+  trade: Pick<Trade, "market" | "quantity">,
+  payments: DividendPayment[],
+): DividendPayment[] {
+  const qty = Number(trade.quantity);
+  if (!Number.isFinite(qty) || qty <= 0) return [];
+
+  return payments.flatMap((payment) => {
+    const legacyPerShare = finiteMoney(
+      (payment as { amountPerShare?: number }).amountPerShare,
+    );
+    let grossPerShare = finiteMoney(payment.grossPerShare) ?? legacyPerShare;
+    let grossTotal = finiteMoney(payment.grossTotal);
+    let netTotal = finiteMoney(payment.netTotal);
+
+    if (grossTotal !== undefined && grossPerShare === undefined) {
+      grossPerShare = finiteMoney(grossTotal / qty);
+    } else if (grossPerShare !== undefined && grossTotal === undefined) {
+      grossTotal = finiteMoney(grossPerShare * qty);
+    }
+
+    if (
+      grossTotal !== undefined &&
+      netTotal === undefined &&
+      grossPerShare !== undefined
+    ) {
+      netTotal = netDividendFromGross(trade.market, grossTotal);
+    }
+
+    if (
+      grossPerShare === undefined ||
+      grossTotal === undefined ||
+      netTotal === undefined ||
+      grossTotal <= 0 ||
+      netTotal <= 0
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        ...payment,
+        grossPerShare,
+        grossTotal,
+        netTotal,
+      },
+    ];
+  });
+}
+
+/** Coerce trade dividend fields after load or fill. */
+export function normalizeTradeDividends(trade: Trade): Trade {
+  const quantity = Number(trade.quantity);
+  const base =
+    Number.isFinite(quantity) && quantity > 0
+      ? { ...trade, quantity }
+      : trade;
+
+  if (base.dividendPayments?.length) {
+    const payments = sanitizeDividendPayments(base, base.dividendPayments);
+    if (payments.length > 0) {
+      return { ...base, ...syncTradeDividendTotals(base, payments) };
+    }
+    return clearTradeDividends(base);
+  }
+
+  if (base.dividendIncome !== undefined) {
+    const income = finiteMoney(base.dividendIncome);
+    if (income === undefined || income < 0) {
+      return clearTradeDividends(base);
+    }
+    const next = { ...base, dividendIncome: income };
+    const gross = finiteMoney(base.dividendGross);
+    if (base.market === "US" && gross !== undefined) {
+      next.dividendGross = gross;
+    } else {
+      delete next.dividendGross;
+    }
+    return next;
+  }
+
   return base;
+}
+
+function dividendPerShare(n: unknown): number | undefined {
+  const x = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(x) || x <= 0) return undefined;
+  return Math.round(x * 1_000_000) / 1_000_000;
 }
 
 export function tradeDateUnix(
@@ -102,7 +197,8 @@ export function syncTradeDividendTotals(
   trade: Trade,
   payments: DividendPayment[],
 ): Pick<Trade, "dividendPayments" | "dividendIncome" | "dividendGross"> {
-  if (payments.length === 0) {
+  const clean = sanitizeDividendPayments(trade, payments);
+  if (clean.length === 0) {
     return {
       dividendPayments: [],
       dividendIncome: undefined,
@@ -110,13 +206,18 @@ export function syncTradeDividendTotals(
     };
   }
 
-  const grossTotal = roundMoney(
-    payments.reduce((s, p) => s + p.grossTotal, 0),
-  );
-  const netTotal = roundMoney(payments.reduce((s, p) => s + p.netTotal, 0));
+  const grossTotal = sumMoney(clean.map((p) => p.grossTotal));
+  const netTotal = sumMoney(clean.map((p) => p.netTotal));
+  if (grossTotal === undefined || netTotal === undefined) {
+    return {
+      dividendPayments: [],
+      dividendIncome: undefined,
+      dividendGross: undefined,
+    };
+  }
 
   return {
-    dividendPayments: payments,
+    dividendPayments: clean,
     dividendIncome: netTotal,
     dividendGross: trade.market === "US" ? grossTotal : undefined,
   };
@@ -131,35 +232,45 @@ export type TradeDividendSummary = {
 };
 
 export function tradeDividendSummary(trade: Trade): TradeDividendSummary | null {
-  const payments = trade.dividendPayments ?? [];
+  const qty = Number(trade.quantity);
+  if (!Number.isFinite(qty) || qty <= 0) return null;
+
+  const payments = sanitizeDividendPayments(trade, trade.dividendPayments ?? []);
   if (payments.length > 0) {
-    const netTotal = roundMoney(payments.reduce((s, p) => s + p.netTotal, 0));
-    const grossTotal = roundMoney(
-      payments.reduce((s, p) => s + p.grossTotal, 0),
-    );
+    const netTotal = sumMoney(payments.map((p) => p.netTotal));
+    const grossTotal = sumMoney(payments.map((p) => p.grossTotal));
+    if (netTotal === undefined || grossTotal === undefined) return null;
+
+    const perShareNet = roundMoney(netTotal / qty);
+    const perShareGross = roundMoney(grossTotal / qty);
+    if (!Number.isFinite(perShareNet)) return null;
+
+    const isUs = trade.market === "US";
     return {
       netTotal,
-      grossTotal: trade.market === "US" ? grossTotal : undefined,
-      perShareNet: roundMoney(netTotal / trade.quantity),
-      perShareGross:
-        trade.market === "US"
-          ? roundMoney(grossTotal / trade.quantity)
-          : undefined,
+      grossTotal: isUs ? grossTotal : netTotal,
+      perShareNet,
+      perShareGross: isUs ? perShareGross : perShareNet,
       payments,
     };
   }
 
-  if (trade.dividendIncome === undefined) return null;
-  const netTotal = trade.dividendIncome;
-  const grossTotal = trade.dividendGross;
+  const netTotal = finiteMoney(trade.dividendIncome);
+  if (netTotal === undefined) return null;
+
+  const perShareNet = roundMoney(netTotal / qty);
+  if (!Number.isFinite(perShareNet)) return null;
+
+  const grossStored = finiteMoney(trade.dividendGross);
+  const isUs = trade.market === "US";
+  const grossTotal = isUs ? (grossStored ?? netTotal) : netTotal;
+  const perShareGross = roundMoney(grossTotal / qty);
+
   return {
     netTotal,
     grossTotal,
-    perShareNet: roundMoney(netTotal / trade.quantity),
-    perShareGross:
-      grossTotal !== undefined
-        ? roundMoney(grossTotal / trade.quantity)
-        : undefined,
+    perShareNet,
+    perShareGross: isUs ? perShareGross : perShareNet,
     payments: [],
   };
 }
@@ -180,7 +291,7 @@ export async function suggestDividendsFromYahoo(
 ): Promise<DividendPayment[]> {
   if (trade.category !== "stocks") return [];
 
-  const ySym = yahooSymbol(trade.symbol, trade.market);
+  const ySym = await resolveYahooChartSymbol(trade.symbol, trade.market);
 
   try {
     const url =
@@ -188,7 +299,10 @@ export async function suggestDividendsFromYahoo(
       encodeURIComponent(ySym) +
       "?interval=1d&range=max&events=div";
     const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
       next: { revalidate: 3600 },
     });
     if (!res.ok) return [];
@@ -197,15 +311,23 @@ export async function suggestDividendsFromYahoo(
     const events = json.chart?.result?.[0]?.events?.dividends ?? {};
     const suggested: DividendPayment[] = [];
 
+    const qty = Number(trade.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) return [];
+
     for (const ev of Object.values(events)) {
+      const amount = dividendPerShare(ev.amount);
+      if (amount === undefined) continue;
+      if (!Number.isFinite(ev.date)) continue;
+
       const exDate = new Date(ev.date * 1000).toISOString().slice(0, 10);
       if (!isEligibleForExDate(exDate, trade.entryDate, trade.exitDate)) {
         continue;
       }
 
-      const grossPerShare = roundMoney(ev.amount);
-      const grossTotal = roundMoney(grossPerShare * trade.quantity);
+      const grossPerShare = amount;
+      const grossTotal = roundMoney(grossPerShare * qty);
       const netTotal = netDividendFromGross(trade.market, grossTotal);
+      if (!Number.isFinite(netTotal) || netTotal <= 0) continue;
 
       suggested.push({
         id: newDividendPaymentId(),
@@ -230,8 +352,7 @@ export function holdingPeriodLabel(trade: Trade): string {
 }
 
 export function tradeHasDividends(trade: Trade): boolean {
-  if ((trade.dividendPayments?.length ?? 0) > 0) return true;
-  return trade.dividendIncome !== undefined;
+  return tradeDividendSummary(trade) !== null;
 }
 
 /** Remove all dividend fields from a trade. */
@@ -262,38 +383,78 @@ export function isFillableStockTrade(trade: Trade): boolean {
   return trade.category === "stocks" && trade.market === "SG";
 }
 
+export type DividendFillSkip = {
+  tradeId: string;
+  symbol: string;
+  reason: string;
+};
+
+function skipReasonForTrade(trade: Trade, yahooSym: string): string {
+  return `No ex-dividends in ${holdingPeriodLabel(trade)} (Yahoo: ${yahooSym})`;
+}
+
 /** Yahoo ex-dates in holding window → payments (SG only). */
 export async function fillTradeDividendsFromYahoo(
   trade: Trade,
-): Promise<Trade | null> {
-  if (!isFillableStockTrade(trade)) return null;
+): Promise<{ trade: Trade | null; skip?: DividendFillSkip }> {
+  if (!isFillableStockTrade(trade)) {
+    return {
+      trade: null,
+      skip: {
+        tradeId: trade.id,
+        symbol: trade.symbol,
+        reason: "Not an SG stock trade",
+      },
+    };
+  }
+
+  const yahooSym = await resolveYahooChartSymbol(trade.symbol, trade.market);
   const payments = await suggestDividendsFromYahoo(trade);
-  if (payments.length === 0) return null;
+  if (payments.length === 0) {
+    return {
+      trade: null,
+      skip: {
+        tradeId: trade.id,
+        symbol: trade.symbol,
+        reason: skipReasonForTrade(trade, yahooSym),
+      },
+    };
+  }
+
   return {
-    ...trade,
-    ...syncTradeDividendTotals(trade, payments),
+    trade: normalizeTradeDividends({
+      ...trade,
+      ...syncTradeDividendTotals(trade, payments),
+    }),
   };
 }
 
 export async function fillDividendsOnTrades(
   trades: Trade[],
   tradeIds: Set<string>,
-): Promise<{ trades: Trade[]; filled: number; skipped: number }> {
+): Promise<{
+  trades: Trade[];
+  filled: number;
+  skipped: number;
+  skips: DividendFillSkip[];
+}> {
   let filled = 0;
   let skipped = 0;
+  const skips: DividendFillSkip[] = [];
 
   const next = await Promise.all(
     trades.map(async (t) => {
       if (!tradeIds.has(t.id) || !isFillableStockTrade(t)) return t;
-      const updated = await fillTradeDividendsFromYahoo(t);
-      if (!updated) {
+      const result = await fillTradeDividendsFromYahoo(t);
+      if (!result.trade) {
         skipped += 1;
+        if (result.skip) skips.push(result.skip);
         return t;
       }
       filled += 1;
-      return updated;
+      return result.trade;
     }),
   );
 
-  return { trades: next, filled, skipped };
+  return { trades: next, filled, skipped, skips };
 }

@@ -36,8 +36,8 @@
       "entryDate": "2026-03-05",
       "market": "SG",
       "category": "stocks",
-      "symbol": "DBS",
-      "description": "DBS",
+      "symbol": "D05",
+      "description": "DBS Group",
       "quantity": 300,
       "entryPrice": 55.2,
       "linkedAccountId": "moomoo"

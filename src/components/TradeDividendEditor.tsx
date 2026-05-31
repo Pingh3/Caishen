@@ -118,7 +118,7 @@ export function TradeDividendEditor({
         <p className="mt-1 text-xs text-secondary">
           {market === "US"
             ? "US: enter each cash payment from your broker. Gross is taxed at 30% to net (e.g. $61.41 gross → $42.99 net)."
-            : "Enter cash from your broker, or use Fill dividends (SG) on the journal for Yahoo."}
+            : "SG/HK: no withholding — cash received equals the dividend amount. Use Fill dividends (SG) for Yahoo ex-dates."}
         </p>
       </div>
 
@@ -137,15 +137,28 @@ export function TradeDividendEditor({
                     : ""}
                 </p>
                 <p className="font-mono text-secondary">
-                  {fmt(p.grossPerShare)}/sh x {quantity.toLocaleString()} ={" "}
-                  {fmt(p.grossTotal)} gross
+                  {market === "US" ? (
+                    <>
+                      {fmt(p.grossPerShare)}/sh x {quantity.toLocaleString()} ={" "}
+                      {fmt(p.grossTotal)} gross
+                    </>
+                  ) : (
+                    <>
+                      {fmt(p.grossPerShare)}/sh x {quantity.toLocaleString()} ={" "}
+                      {fmt(p.grossTotal)}
+                    </>
+                  )}
                 </p>
-                <p className="font-mono text-positive">
-                  Net {fmt(p.netTotal)}
-                  {p.source === "yahoo" ? (
-                    <span className="text-muted"> · check vs broker</span>
-                  ) : null}
-                </p>
+                {market === "US" ? (
+                  <p className="font-mono text-positive">
+                    Net {fmt(p.netTotal)}
+                    {p.source === "yahoo" ? (
+                      <span className="text-muted"> · check vs broker</span>
+                    ) : null}
+                  </p>
+                ) : p.source === "yahoo" ? (
+                  <p className="text-muted">Check vs broker</p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -161,7 +174,9 @@ export function TradeDividendEditor({
 
       {payments.length > 0 ? (
         <p className="font-mono text-sm text-primary">
-          Total net {fmt(totals.dividendIncome ?? 0)}
+          Total{" "}
+          {market === "US" ? "net " : ""}
+          {fmt(totals.dividendIncome ?? 0)}
           {market === "US" && totals.dividendGross !== undefined
             ? ` (${fmt(totals.dividendGross)} gross)`
             : ""}

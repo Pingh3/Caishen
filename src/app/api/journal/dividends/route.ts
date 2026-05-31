@@ -22,16 +22,15 @@ export async function POST(req: Request) {
     const trades = data.trades ?? [];
     const ids = new Set(tradeIds);
 
-    const { trades: nextTrades, filled, skipped } = await fillDividendsOnTrades(
-      trades,
-      ids,
-    );
+    const { trades: nextTrades, filled, skipped, skips } =
+      await fillDividendsOnTrades(trades, ids);
 
     await writeFinanceData({ ...data, trades: nextTrades });
 
     return NextResponse.json({
       filled,
       skipped,
+      skips,
       note:
         "SG stocks only. US dividends are manual. Yahoo uses ex-dates in your holding window.",
     });
