@@ -8,6 +8,7 @@ import { APP_NAME } from "@/lib/app";
 
 const links = [
   { href: "/", label: "Dashboard" },
+  { href: "/advisor", label: "Advisor" },
   { href: "/journal", label: "Journal" },
   { href: "/philosophy", label: "Philosophy" },
   { href: "/investments", label: "Investments" },
